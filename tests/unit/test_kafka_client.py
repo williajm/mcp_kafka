@@ -1,0 +1,226 @@
+"""Tests for Kafka client wrapper."""
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from mcp_kafka.config import KafkaConfig
+from mcp_kafka.kafka_wrapper.client import KafkaClientWrapper
+from mcp_kafka.utils.errors import KafkaConnectionError, KafkaHealthCheckError
+
+
+class TestKafkaClientWrapper:
+    """Tests for KafkaClientWrapper."""
+
+    def test_init(self, kafka_config: KafkaConfig) -> None:
+        """Test wrapper initialization."""
+        wrapper = KafkaClientWrapper(kafka_config)
+        assert wrapper.config == kafka_config
+        assert wrapper._admin_client is None
+
+    def test_repr_disconnected(self, kafka_config: KafkaConfig) -> None:
+        """Test repr when disconnected."""
+        wrapper = KafkaClientWrapper(kafka_config)
+        repr_str = repr(wrapper)
+        assert "localhost:9092" in repr_str
+        assert "disconnected" in repr_str
+
+    def test_build_client_config_plaintext(self, kafka_config: KafkaConfig) -> None:
+        """Test building client config for plaintext."""
+        wrapper = KafkaClientWrapper(kafka_config)
+        config = wrapper._build_client_config()
+        assert config["bootstrap.servers"] == "localhost:9092"
+        assert config["client.id"] == "test-client"
+        assert config["security.protocol"] == "PLAINTEXT"
+
+    def test_build_client_config_sasl(self, kafka_config_sasl: KafkaConfig) -> None:
+        """Test building client config for SASL."""
+        wrapper = KafkaClientWrapper(kafka_config_sasl)
+        config = wrapper._build_client_config()
+        assert config["security.protocol"] == "SASL_PLAINTEXT"
+        assert config["sasl.mechanism"] == "PLAIN"
+        assert config["sasl.username"] == "test-user"
+        assert config["sasl.password"] == "test-password"
+
+    def test_connect_success(self, kafka_config: KafkaConfig, mock_admin_client: MagicMock) -> None:
+        """Test successful connection."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            wrapper._connect()
+            assert wrapper._admin_client is not None
+            mock_cls.assert_called_once()
+
+    def test_connect_failure(self, kafka_config: KafkaConfig) -> None:
+        """Test connection failure."""
+        from confluent_kafka import KafkaException
+
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.side_effect = KafkaException("Connection failed")
+            wrapper = KafkaClientWrapper(kafka_config)
+            with pytest.raises(KafkaConnectionError, match="Cannot connect"):
+                wrapper._connect()
+
+    def test_admin_property_lazy_init(
+        self, kafka_config: KafkaConfig, mock_admin_client: MagicMock
+    ) -> None:
+        """Test admin property lazily initializes client."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            assert wrapper._admin_client is None
+            admin = wrapper.admin
+            assert admin is not None
+            assert wrapper._admin_client is not None
+
+    def test_health_check_success(
+        self, kafka_config: KafkaConfig, mock_admin_client: MagicMock
+    ) -> None:
+        """Test successful health check."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            health = wrapper.health_check()
+            assert health["status"] == "healthy"
+            assert health["cluster_id"] == "test-cluster-id"
+            assert health["broker_count"] == 1
+            assert health["topic_count"] == 1
+
+    def test_health_check_failure(
+        self, kafka_config: KafkaConfig, mock_admin_client: MagicMock
+    ) -> None:
+        """Test health check failure."""
+        from confluent_kafka import KafkaException
+
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_admin_client.list_topics.side_effect = KafkaException("Failed")
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            wrapper._admin_client = mock_admin_client  # Skip connect
+            with pytest.raises(KafkaHealthCheckError, match="Health check failed"):
+                wrapper.health_check()
+
+    def test_close(self, kafka_config: KafkaConfig, mock_admin_client: MagicMock) -> None:
+        """Test close method."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            wrapper._connect()
+            assert wrapper._admin_client is not None
+            wrapper.close()
+            assert wrapper._admin_client is None
+
+    def test_context_manager(self, kafka_config: KafkaConfig, mock_admin_client: MagicMock) -> None:
+        """Test context manager usage."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            with KafkaClientWrapper(kafka_config) as wrapper:
+                wrapper._connect()
+                assert wrapper._admin_client is not None
+            # After context exit, client should be closed
+            assert wrapper._admin_client is None
+
+    def test_acquire_context_manager(
+        self, kafka_config: KafkaConfig, mock_admin_client: MagicMock
+    ) -> None:
+        """Test acquire context manager."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            with wrapper.acquire() as admin:
+                assert admin is not None
+                assert admin == mock_admin_client
+
+    def test_acquire_kafka_exception(
+        self, kafka_config: KafkaConfig, mock_admin_client: MagicMock
+    ) -> None:
+        """Test acquire context manager with KafkaException."""
+        from confluent_kafka import KafkaException
+
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            wrapper._admin_client = mock_admin_client
+            with pytest.raises(KafkaException):
+                with wrapper.acquire():
+                    raise KafkaException("Operation failed")
+
+    def test_acquire_generic_exception(
+        self, kafka_config: KafkaConfig, mock_admin_client: MagicMock
+    ) -> None:
+        """Test acquire context manager with generic exception."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            wrapper._admin_client = mock_admin_client
+            with pytest.raises(ValueError):
+                with wrapper.acquire():
+                    raise ValueError("Generic error")
+
+    def test_connect_generic_exception(self, kafka_config: KafkaConfig) -> None:
+        """Test connection with generic exception."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.side_effect = RuntimeError("Unexpected error")
+            wrapper = KafkaClientWrapper(kafka_config)
+            with pytest.raises(KafkaConnectionError, match="Unexpected error"):
+                wrapper._connect()
+
+    def test_repr_connected(self, kafka_config: KafkaConfig, mock_admin_client: MagicMock) -> None:
+        """Test repr when connected."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            wrapper._connect()
+            repr_str = repr(wrapper)
+            assert "localhost:9092" in repr_str
+            assert "connected" in repr_str
+            assert "disconnected" not in repr_str
+
+    def test_build_client_config_gssapi(self) -> None:
+        """Test building client config for GSSAPI/Kerberos."""
+        from pathlib import Path
+
+        config = KafkaConfig(
+            bootstrap_servers="localhost:9092",
+            client_id="test-client",
+            security_protocol="SASL_PLAINTEXT",
+            sasl_mechanism="GSSAPI",
+            sasl_kerberos_service_name="kafka",
+            sasl_kerberos_principal="kafka/broker@REALM",
+            sasl_kerberos_keytab=Path("/etc/keytabs/kafka.keytab"),
+        )
+        wrapper = KafkaClientWrapper(config)
+        client_config = wrapper._build_client_config()
+        assert client_config["sasl.mechanism"] == "GSSAPI"
+        assert client_config["sasl.kerberos.service.name"] == "kafka"
+        assert client_config["sasl.kerberos.principal"] == "kafka/broker@REALM"
+        assert client_config["sasl.kerberos.keytab"] == "/etc/keytabs/kafka.keytab"
+
+    def test_build_client_config_ssl(self) -> None:
+        """Test building client config with SSL."""
+        from pathlib import Path
+
+        config = KafkaConfig(
+            bootstrap_servers="localhost:9092",
+            client_id="test-client",
+            security_protocol="SSL",
+            ssl_ca_location=Path("/certs/ca.pem"),
+            ssl_certificate_location=Path("/certs/client.pem"),
+            ssl_key_location=Path("/certs/client.key"),
+            ssl_key_password="secret",
+        )
+        wrapper = KafkaClientWrapper(config)
+        client_config = wrapper._build_client_config()
+        assert client_config["security.protocol"] == "SSL"
+        assert client_config["ssl.ca.location"] == "/certs/ca.pem"
+        assert client_config["ssl.certificate.location"] == "/certs/client.pem"
+        assert client_config["ssl.key.location"] == "/certs/client.key"
+        assert client_config["ssl.key.password"] == "secret"
+
+    def test_admin_property_raises_when_connect_fails(self, kafka_config: KafkaConfig) -> None:
+        """Test admin property raises when connection fails and client is None."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.side_effect = KafkaConnectionError("Failed")
+            wrapper = KafkaClientWrapper(kafka_config)
+            with pytest.raises(KafkaConnectionError):
+                _ = wrapper.admin
