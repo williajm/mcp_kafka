@@ -97,6 +97,7 @@ services:
       - seed
 
   # Continuous producer for live activity
+  # Produces batches of messages every 5 seconds to simulate ongoing activity
   kafka-live-producer:
     image: apache/kafka:3.9.1
     container_name: mcp-kafka-live
@@ -106,32 +107,30 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        echo "Starting continuous message production..."
-        counter=1
+        echo "Starting continuous message production (batches every 5s)..."
+        batch=1
         while true; do
-          # Random topic
-          topics=("orders" "users" "events" "logs")
-          topic=$${topics[$$((RANDOM % 4))]}
+          ts=$$(date -Iseconds)
+          echo "[$$ts] Producing batch $$batch..."
 
-          case $$topic in
-            orders)
-              echo "{\"order_id\": \"ORD-LIVE-$$counter\", \"amount\": $$((RANDOM % 500)), \"status\": \"new\", \"timestamp\": \"$$(date -Iseconds)\"}" | \
-                /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic orders
-              ;;
-            events)
-              event_types=("click" "view" "purchase")
-              event_type=$${event_types[$$((RANDOM % 3))]}
-              echo "{\"event_id\": \"EVT-LIVE-$$counter\", \"type\": \"$$event_type\", \"timestamp\": \"$$(date -Iseconds)\"}" | \
-                /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic events
-              ;;
-            logs)
-              echo "{\"level\": \"INFO\", \"message\": \"Heartbeat $$counter\", \"timestamp\": \"$$(date -Iseconds)\"}" | \
-                /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic logs
-              ;;
-          esac
+          # Orders batch
+          (for i in 1 2 3; do
+            echo "{\"order_id\": \"ORD-LIVE-$$batch-$$i\", \"amount\": $$((RANDOM % 500)), \"status\": \"new\"}"
+          done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic orders 2>/dev/null
 
-          counter=$$((counter + 1))
-          sleep $$((RANDOM % 3 + 1))
+          # Events batch
+          (for i in 1 2 3 4 5; do
+            event_types=("click" "view" "purchase")
+            echo "{\"event_id\": \"EVT-LIVE-$$batch-$$i\", \"type\": \"$${event_types[$$((RANDOM % 3))]}\"}"
+          done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic events 2>/dev/null
+
+          # Logs batch
+          (for i in 1 2; do
+            echo "{\"level\": \"INFO\", \"message\": \"Heartbeat $$batch-$$i\"}"
+          done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic logs 2>/dev/null
+
+          batch=$$((batch + 1))
+          sleep 5
         done
     profiles:
       - live
