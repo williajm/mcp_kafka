@@ -9,10 +9,8 @@ echo "🚀 Starting Kafka development environment..."
 docker compose up -d kafka kafka-ui
 
 echo "⏳ Waiting for Kafka to be healthy..."
-docker compose exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list > /dev/null 2>&1
-while [ $? -ne 0 ]; do
+until docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list > /dev/null 2>&1; do
     sleep 2
-    docker compose exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list > /dev/null 2>&1
 done
 
 echo ""
