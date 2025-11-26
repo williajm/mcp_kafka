@@ -1,6 +1,6 @@
 services:
   kafka:
-    image: bitnami/kafka:3.9
+    image: bitnami/kafka:latest
     container_name: mcp-kafka-broker
     ports:
       - "9092:9092"
@@ -46,7 +46,7 @@ services:
 
   # Data generator for testing
   kafka-producer:
-    image: bitnami/kafka:3.9
+    image: bitnami/kafka:latest
     container_name: mcp-kafka-producer
     depends_on:
       kafka:
@@ -95,7 +95,7 @@ services:
 
   # Continuous producer for live activity
   kafka-live-producer:
-    image: bitnami/kafka:3.9
+    image: bitnami/kafka:latest
     container_name: mcp-kafka-live
     depends_on:
       kafka:
