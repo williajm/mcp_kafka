@@ -32,11 +32,8 @@ jobs:
     - name: Set up Python 3.11
       run: uv python install 3.11
 
-    - name: Install Bandit
-      run: uv pip install bandit
-
     - name: Run Bandit security scan
-      run: uv run bandit -r src/mcp_kafka/ -f json -o bandit-report.json || true
+      run: uvx bandit -r src/mcp_kafka/ -f json -o bandit-report.json || true
 
     - name: Upload Bandit results
       if: always()
@@ -47,4 +44,4 @@ jobs:
 
     - name: Display Bandit results
       if: always()
-      run: uv run bandit -r src/mcp_kafka/ -f screen
+      run: uvx bandit -r src/mcp_kafka/ -f screen
