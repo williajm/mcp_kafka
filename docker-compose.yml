@@ -63,33 +63,34 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic logs --partitions 1 --replication-factor 1
 
         echo "Producing sample messages..."
-        # Orders
-        for i in {1..20}; do
-          echo "{\"order_id\": \"ORD-$$i\", \"customer\": \"customer_$$((i % 5))\", \"amount\": $$((RANDOM % 1000)), \"status\": \"pending\", \"timestamp\": \"$$(date -Iseconds)\"}" | \
-            /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic orders
-        done
+
+        # Orders (batch all messages, one producer call)
+        echo "  - orders: 20 messages"
+        (for i in {1..20}; do
+          echo "{\"order_id\": \"ORD-$$i\", \"customer\": \"customer_$$((i % 5))\", \"amount\": $$((RANDOM % 1000)), \"status\": \"pending\"}"
+        done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic orders
 
         # Users
-        for i in {1..10}; do
-          echo "{\"user_id\": \"USR-$$i\", \"name\": \"User $$i\", \"email\": \"user$$i@example.com\", \"created\": \"$$(date -Iseconds)\"}" | \
-            /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic users
-        done
+        echo "  - users: 10 messages"
+        (for i in {1..10}; do
+          echo "{\"user_id\": \"USR-$$i\", \"name\": \"User $$i\", \"email\": \"user$$i@example.com\"}"
+        done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic users
 
         # Events
-        for i in {1..30}; do
+        echo "  - events: 30 messages"
+        (for i in {1..30}; do
           event_types=("click" "view" "purchase" "login" "logout")
           event_type=$${event_types[$$((RANDOM % 5))]}
-          echo "{\"event_id\": \"EVT-$$i\", \"type\": \"$$event_type\", \"user_id\": \"USR-$$((i % 10))\", \"timestamp\": \"$$(date -Iseconds)\"}" | \
-            /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic events
-        done
+          echo "{\"event_id\": \"EVT-$$i\", \"type\": \"$$event_type\", \"user_id\": \"USR-$$((i % 10))\"}"
+        done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic events
 
         # Logs
-        for i in {1..15}; do
+        echo "  - logs: 15 messages"
+        (for i in {1..15}; do
           levels=("INFO" "WARN" "ERROR" "DEBUG")
           level=$${levels[$$((RANDOM % 4))]}
-          echo "{\"level\": \"$$level\", \"service\": \"api-gateway\", \"message\": \"Log message $$i\", \"timestamp\": \"$$(date -Iseconds)\"}" | \
-            /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic logs
-        done
+          echo "{\"level\": \"$$level\", \"service\": \"api-gateway\", \"message\": \"Log message $$i\"}"
+        done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic logs
 
         echo "Sample data created!"
     profiles:
