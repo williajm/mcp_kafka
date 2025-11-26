@@ -31,6 +31,7 @@ def _parse_comma_separated_list(value: str | list[str] | None) -> list[str]:
                 if isinstance(parsed, list):
                     return [str(item) for item in parsed]
             except json.JSONDecodeError:
+                # Intentional fallback: if JSON parsing fails, treat as comma-separated
                 pass
         return [item.strip() for item in value.split(",") if item.strip()]
     return []
