@@ -27,12 +27,13 @@ MAX_JWKS_RESPONSE_SIZE = 1024 * 1024  # 1MB max JWKS response
 ALLOWED_JWT_ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"]
 
 # Private IP ranges to block for SSRF protection
+# These are blocklisted ranges, not connection targets (NOSONAR - safe use)
 PRIVATE_IP_RANGES = [
-    ipaddress.ip_network("0.0.0.0/8"),  # "This" network (RFC 5735)
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("169.254.0.0/16"),  # Link-local
+    ipaddress.ip_network("0.0.0.0/8"),  # "This" network (RFC 5735)  # NOSONAR
+    ipaddress.ip_network("10.0.0.0/8"),  # NOSONAR
+    ipaddress.ip_network("172.16.0.0/12"),  # NOSONAR
+    ipaddress.ip_network("192.168.0.0/16"),  # NOSONAR
+    ipaddress.ip_network("169.254.0.0/16"),  # Link-local  # NOSONAR
     ipaddress.ip_network("127.0.0.0/8"),  # Loopback
 ]
 
