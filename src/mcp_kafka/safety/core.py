@@ -143,6 +143,17 @@ class AccessEnforcer:
         # Check if it's in the blocklist
         return topic in self._topic_blocklist
 
+    def is_blocklisted_topic(self, topic: str) -> bool:
+        """Check if a topic is in the blocklist.
+
+        Args:
+            topic: Topic name to check
+
+        Returns:
+            True if topic is blocklisted, False otherwise
+        """
+        return topic in self._topic_blocklist
+
     def validate_topic_name(self, topic: str) -> None:
         """Validate a topic name format and access.
 

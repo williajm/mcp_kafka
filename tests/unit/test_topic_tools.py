@@ -96,7 +96,7 @@ class TestListTopics:
             mock_metadata.brokers = {1: MagicMock()}
             mock_metadata.topics = {
                 "test-topic": mock_topic,
-                "__consumer_offsets": mock_topic,
+                "__internal_test": mock_topic,  # Internal but not blocklisted
             }
 
             mock_admin = MagicMock()
@@ -110,7 +110,45 @@ class TestListTopics:
 
             assert len(topics) == 2
             topic_names = [t.name for t in topics]
-            assert "__consumer_offsets" in topic_names
+            assert "__internal_test" in topic_names
+
+    def test_list_topics_blocklist_always_enforced(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test that blocklisted topics are never returned, even with include_internal=True."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {
+                "test-topic": mock_topic,
+                "__consumer_offsets": mock_topic,  # In default blocklist
+                "__transaction_state": mock_topic,  # In default blocklist
+                "__internal_test": mock_topic,  # Internal but not blocklisted
+            }
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_cls.return_value = mock_admin
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            # Even with include_internal=True, blocklisted topics should be excluded
+            topics = list_topics(client, enforcer, include_internal=True)
+
+            topic_names = [t.name for t in topics]
+            assert "test-topic" in topic_names
+            assert "__internal_test" in topic_names
+            # Blocklisted topics should NOT be included
+            assert "__consumer_offsets" not in topic_names
+            assert "__transaction_state" not in topic_names
+            assert len(topics) == 2
 
     def test_list_topics_empty(
         self, kafka_config: KafkaConfig, safety_config: SafetyConfig

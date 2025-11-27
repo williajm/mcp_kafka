@@ -37,9 +37,14 @@ def list_topics(
 
         topics: list[TopicInfo] = []
         for topic_name, topic_metadata in metadata.topics.items():
-            # Skip protected topics unless include_internal is True
             is_internal = topic_name.startswith("__")
-            if not include_internal and enforcer.is_protected_topic(topic_name):
+
+            # Always skip blocklisted topics (safety enforcement)
+            if enforcer.is_blocklisted_topic(topic_name):
+                continue
+
+            # Skip internal topics unless include_internal is True
+            if is_internal and not include_internal:
                 continue
 
             # Get replication factor from first partition

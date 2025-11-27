@@ -29,8 +29,12 @@ def get_cluster_info(
         logger.debug("Getting cluster info")
         metadata = client.admin.list_topics(timeout=client.config.timeout)
 
-        # Find controller (use first broker as fallback)
-        controller_id = next(iter(metadata.brokers.keys()), -1)
+        # Get controller ID from metadata (fallback to first broker if not available)
+        controller_id = (
+            metadata.controller_id
+            if metadata.controller_id is not None
+            else next(iter(metadata.brokers.keys()), -1)
+        )
 
         # Count non-internal topics
         topic_count = sum(1 for topic in metadata.topics if not topic.startswith("__"))
