@@ -65,8 +65,8 @@ def _is_private_ip(hostname: str) -> bool:
     except ValueError:
         # Not an IP address, could be a hostname
         # For hostnames, we can't resolve without making a network call
-        # Block known dangerous hostnames
-        dangerous_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "metadata.google.internal"}
+        # Block known dangerous hostnames (IPs are handled by network ranges above)
+        dangerous_hosts = {"localhost", "metadata.google.internal"}
         return hostname.lower() in dangerous_hosts
 
 

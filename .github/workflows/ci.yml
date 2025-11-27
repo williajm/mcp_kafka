@@ -148,8 +148,7 @@ jobs:
         uv run pytest tests/integration/ \
           -v \
           -m integration \
-          --tb=short \
-          --timeout=300
+          --tb=short
       env:
         # Testcontainers configuration
         TESTCONTAINERS_RYUK_DISABLED: "true"

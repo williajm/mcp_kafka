@@ -368,7 +368,11 @@ class TestSSRFProtection:
         """Test detection of dangerous hostnames."""
         assert _is_private_ip("localhost") is True
         assert _is_private_ip("metadata.google.internal") is True
+
+    def test_is_private_ip_special_addresses(self) -> None:
+        """Test detection of special IP addresses (0.0.0.0/8 range)."""
         assert _is_private_ip("0.0.0.0") is True
+        assert _is_private_ip("0.0.0.1") is True
 
     def test_is_private_ip_safe_hostname(self) -> None:
         """Test that safe hostnames are allowed."""
