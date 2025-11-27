@@ -5,8 +5,97 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mcp_kafka.config import KafkaConfig
-from mcp_kafka.kafka_wrapper.client import KafkaClientWrapper
+from mcp_kafka.kafka_wrapper.client import (
+    MAX_GROUP_ID_LENGTH,
+    TEMP_CONSUMER_PREFIX,
+    KafkaClientWrapper,
+    _build_safe_group_id,
+)
 from mcp_kafka.utils.errors import KafkaConnectionError, KafkaHealthCheckError
+
+
+class TestBuildSafeGroupId:
+    """Tests for _build_safe_group_id helper function."""
+
+    def test_short_suffix_no_truncation(self) -> None:
+        """Test that short suffixes are not truncated."""
+        result = _build_safe_group_id("mcp-kafka", "watermark-check-my-topic")
+        assert result == "mcp-kafka-watermark-check-my-topic"
+        assert len(result) <= MAX_GROUP_ID_LENGTH
+
+    def test_long_suffix_gets_truncated(self) -> None:
+        """Test that long suffixes are truncated with hash appended."""
+        # Create a suffix that would exceed 249 chars with prefix
+        long_suffix = "a" * 250
+        result = _build_safe_group_id("mcp-kafka", long_suffix)
+
+        assert len(result) <= MAX_GROUP_ID_LENGTH
+        assert result.startswith("mcp-kafka-")
+        # Should end with 8-char hash
+        assert len(result.split("-")[-1]) == 8
+
+    def test_exactly_at_limit_no_truncation(self) -> None:
+        """Test suffix that results in exactly 249 chars is not truncated."""
+        prefix = "mcp-kafka"
+        # Need suffix length = 249 - len(prefix) - 1 (dash) = 239
+        suffix = "x" * 239
+        result = _build_safe_group_id(prefix, suffix)
+
+        assert len(result) == MAX_GROUP_ID_LENGTH
+        # Exact match proves no truncation/hashing occurred
+        assert result == f"{prefix}-{suffix}"
+
+    def test_one_over_limit_gets_truncated(self) -> None:
+        """Test suffix that results in 250 chars gets truncated."""
+        prefix = "mcp-kafka"
+        # Need suffix length = 240 to get 250 total
+        suffix = "y" * 240
+        result = _build_safe_group_id(prefix, suffix)
+
+        assert len(result) <= MAX_GROUP_ID_LENGTH
+        # Should have hash appended (format: prefix-truncated-hash8)
+        parts = result.split("-")
+        assert len(parts[-1]) == 8  # Hash suffix
+
+    def test_hash_provides_uniqueness(self) -> None:
+        """Test that different long suffixes produce different results."""
+        long_suffix1 = "topic-" + "a" * 250
+        long_suffix2 = "topic-" + "b" * 250
+        result1 = _build_safe_group_id("mcp-kafka", long_suffix1)
+        result2 = _build_safe_group_id("mcp-kafka", long_suffix2)
+
+        # Both should be truncated to same length
+        assert len(result1) == len(result2) <= MAX_GROUP_ID_LENGTH
+        # But should be different due to hash
+        assert result1 != result2
+
+    def test_same_suffix_produces_same_hash(self) -> None:
+        """Test that the same suffix always produces the same result."""
+        long_suffix = "deterministic-" + "z" * 250
+        result1 = _build_safe_group_id("mcp-kafka", long_suffix)
+        result2 = _build_safe_group_id("mcp-kafka", long_suffix)
+
+        assert result1 == result2
+
+    def test_realistic_watermark_check_long_topic(self) -> None:
+        """Test realistic watermark check with max-length topic name."""
+        # Max topic name is 249 chars
+        topic_name = "t" * 249
+        suffix = f"watermark-check-{topic_name}"
+        result = _build_safe_group_id(TEMP_CONSUMER_PREFIX, suffix)
+
+        assert len(result) <= MAX_GROUP_ID_LENGTH
+        assert result.startswith(f"{TEMP_CONSUMER_PREFIX}-watermark-check-")
+
+    def test_realistic_lag_check_long_group(self) -> None:
+        """Test realistic lag check with max-length consumer group ID."""
+        # Max group ID is 249 chars
+        group_id = "g" * 249
+        suffix = f"lag-check-{group_id}"
+        result = _build_safe_group_id(TEMP_CONSUMER_PREFIX, suffix)
+
+        assert len(result) <= MAX_GROUP_ID_LENGTH
+        assert result.startswith(f"{TEMP_CONSUMER_PREFIX}-lag-check-")
 
 
 class TestKafkaClientWrapper:
