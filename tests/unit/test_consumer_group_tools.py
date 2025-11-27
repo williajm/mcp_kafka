@@ -11,6 +11,7 @@ from mcp_kafka.fastmcp_tools.consumer_group import (
     describe_consumer_group,
     get_consumer_lag,
     list_consumer_groups,
+    reset_offsets,
 )
 from mcp_kafka.kafka_wrapper.client import KafkaClientWrapper
 from mcp_kafka.safety.core import AccessEnforcer
@@ -18,6 +19,7 @@ from mcp_kafka.utils.errors import (
     ConsumerGroupNotFound,
     KafkaOperationError,
     SafetyError,
+    TopicNotFound,
     ValidationError,
 )
 
@@ -505,3 +507,583 @@ class TestGetConsumerLag:
 
             with pytest.raises(KafkaOperationError, match="Failed to get consumer lag"):
                 get_consumer_lag(client, enforcer, "test-group")
+
+
+class TestResetOffsets:
+    """Tests for reset_offsets function."""
+
+    def test_reset_offsets_to_latest_success(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test resetting offsets to latest successfully."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition, 1: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            # Mock current offsets
+            mock_offset_tp_0 = MagicMock()
+            mock_offset_tp_0.topic = "test-topic"
+            mock_offset_tp_0.partition = 0
+            mock_offset_tp_0.offset = 100
+
+            mock_offset_tp_1 = MagicMock()
+            mock_offset_tp_1.topic = "test-topic"
+            mock_offset_tp_1.partition = 1
+            mock_offset_tp_1.offset = 200
+
+            mock_offset_result = MagicMock()
+            mock_offset_result.topic_partitions = [mock_offset_tp_0, mock_offset_tp_1]
+
+            mock_offset_future = Future()
+            mock_offset_future.set_result(mock_offset_result)
+
+            # Mock alter result
+            mock_alter_tp_0 = MagicMock()
+            mock_alter_tp_0.topic = "test-topic"
+            mock_alter_tp_0.partition = 0
+            mock_alter_tp_0.offset = 150
+            mock_alter_tp_0.error = None
+
+            mock_alter_tp_1 = MagicMock()
+            mock_alter_tp_1.topic = "test-topic"
+            mock_alter_tp_1.partition = 1
+            mock_alter_tp_1.offset = 250
+            mock_alter_tp_1.error = None
+
+            mock_alter_result = MagicMock()
+            mock_alter_result.topic_partitions = [mock_alter_tp_0, mock_alter_tp_1]
+
+            mock_alter_future = Future()
+            mock_alter_future.set_result(mock_alter_result)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.list_consumer_group_offsets.return_value = {"test-group": mock_offset_future}
+            mock_admin.alter_consumer_group_offsets.return_value = {"test-group": mock_alter_future}
+            mock_cls.return_value = mock_admin
+
+            # Mock consumer for watermarks
+            mock_consumer = MagicMock()
+            mock_consumer.get_watermark_offsets.side_effect = [(0, 150), (0, 250)]
+
+            client = KafkaClientWrapper(kafka_config)
+            client.temporary_consumer = MagicMock()
+            client.temporary_consumer.return_value.__enter__ = MagicMock(return_value=mock_consumer)
+            client.temporary_consumer.return_value.__exit__ = MagicMock(return_value=False)
+            enforcer = AccessEnforcer(safety_config)
+
+            results = reset_offsets(client, enforcer, "test-group", "test-topic", offset="latest")
+
+            assert len(results) == 2
+            assert results[0].group_id == "test-group"
+            assert results[0].topic == "test-topic"
+            assert results[0].partition == 0
+            assert results[0].previous_offset == 100
+            assert results[0].new_offset == 150
+
+    def test_reset_offsets_to_earliest(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test resetting offsets to earliest."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_offset_tp = MagicMock()
+            mock_offset_tp.topic = "test-topic"
+            mock_offset_tp.partition = 0
+            mock_offset_tp.offset = 100
+
+            mock_offset_result = MagicMock()
+            mock_offset_result.topic_partitions = [mock_offset_tp]
+
+            mock_offset_future = Future()
+            mock_offset_future.set_result(mock_offset_result)
+
+            mock_alter_tp = MagicMock()
+            mock_alter_tp.topic = "test-topic"
+            mock_alter_tp.partition = 0
+            mock_alter_tp.offset = 0
+            mock_alter_tp.error = None
+
+            mock_alter_result = MagicMock()
+            mock_alter_result.topic_partitions = [mock_alter_tp]
+
+            mock_alter_future = Future()
+            mock_alter_future.set_result(mock_alter_result)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.list_consumer_group_offsets.return_value = {"test-group": mock_offset_future}
+            mock_admin.alter_consumer_group_offsets.return_value = {"test-group": mock_alter_future}
+            mock_cls.return_value = mock_admin
+
+            mock_consumer = MagicMock()
+            mock_consumer.get_watermark_offsets.return_value = (0, 150)
+
+            client = KafkaClientWrapper(kafka_config)
+            client.temporary_consumer = MagicMock()
+            client.temporary_consumer.return_value.__enter__ = MagicMock(return_value=mock_consumer)
+            client.temporary_consumer.return_value.__exit__ = MagicMock(return_value=False)
+            enforcer = AccessEnforcer(safety_config)
+
+            results = reset_offsets(client, enforcer, "test-group", "test-topic", offset="earliest")
+
+            assert len(results) == 1
+            assert results[0].new_offset == 0
+
+    def test_reset_offsets_specific_partition(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test resetting offsets for a specific partition."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition, 1: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_offset_tp = MagicMock()
+            mock_offset_tp.topic = "test-topic"
+            mock_offset_tp.partition = 1
+            mock_offset_tp.offset = 200
+
+            mock_offset_result = MagicMock()
+            mock_offset_result.topic_partitions = [mock_offset_tp]
+
+            mock_offset_future = Future()
+            mock_offset_future.set_result(mock_offset_result)
+
+            mock_alter_tp = MagicMock()
+            mock_alter_tp.topic = "test-topic"
+            mock_alter_tp.partition = 1
+            mock_alter_tp.offset = 250
+            mock_alter_tp.error = None
+
+            mock_alter_result = MagicMock()
+            mock_alter_result.topic_partitions = [mock_alter_tp]
+
+            mock_alter_future = Future()
+            mock_alter_future.set_result(mock_alter_result)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.list_consumer_group_offsets.return_value = {"test-group": mock_offset_future}
+            mock_admin.alter_consumer_group_offsets.return_value = {"test-group": mock_alter_future}
+            mock_cls.return_value = mock_admin
+
+            mock_consumer = MagicMock()
+            mock_consumer.get_watermark_offsets.return_value = (0, 250)
+
+            client = KafkaClientWrapper(kafka_config)
+            client.temporary_consumer = MagicMock()
+            client.temporary_consumer.return_value.__enter__ = MagicMock(return_value=mock_consumer)
+            client.temporary_consumer.return_value.__exit__ = MagicMock(return_value=False)
+            enforcer = AccessEnforcer(safety_config)
+
+            results = reset_offsets(
+                client, enforcer, "test-group", "test-topic", partition=1, offset="latest"
+            )
+
+            # Should only reset partition 1
+            assert len(results) == 1
+            assert results[0].partition == 1
+
+    def test_reset_offsets_numeric_offset(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test resetting offsets to a specific numeric offset."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_offset_tp = MagicMock()
+            mock_offset_tp.topic = "test-topic"
+            mock_offset_tp.partition = 0
+            mock_offset_tp.offset = 100
+
+            mock_offset_result = MagicMock()
+            mock_offset_result.topic_partitions = [mock_offset_tp]
+
+            mock_offset_future = Future()
+            mock_offset_future.set_result(mock_offset_result)
+
+            mock_alter_tp = MagicMock()
+            mock_alter_tp.topic = "test-topic"
+            mock_alter_tp.partition = 0
+            mock_alter_tp.offset = 50
+            mock_alter_tp.error = None
+
+            mock_alter_result = MagicMock()
+            mock_alter_result.topic_partitions = [mock_alter_tp]
+
+            mock_alter_future = Future()
+            mock_alter_future.set_result(mock_alter_result)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.list_consumer_group_offsets.return_value = {"test-group": mock_offset_future}
+            mock_admin.alter_consumer_group_offsets.return_value = {"test-group": mock_alter_future}
+            mock_cls.return_value = mock_admin
+
+            mock_consumer = MagicMock()
+            mock_consumer.get_watermark_offsets.return_value = (0, 150)
+
+            client = KafkaClientWrapper(kafka_config)
+            client.temporary_consumer = MagicMock()
+            client.temporary_consumer.return_value.__enter__ = MagicMock(return_value=mock_consumer)
+            client.temporary_consumer.return_value.__exit__ = MagicMock(return_value=False)
+            enforcer = AccessEnforcer(safety_config)
+
+            results = reset_offsets(client, enforcer, "test-group", "test-topic", offset=50)
+
+            assert len(results) == 1
+            assert results[0].new_offset == 50
+
+    def test_reset_offsets_protected_group(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test reset_offsets raises SafetyError for protected groups."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(SafetyError, match="not allowed"):
+                reset_offsets(client, enforcer, "__internal-group", "test-topic")
+
+    def test_reset_offsets_protected_topic(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test reset_offsets raises SafetyError for protected topics."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(SafetyError, match="not allowed"):
+                reset_offsets(client, enforcer, "test-group", "__consumer_offsets")
+
+    def test_reset_offsets_topic_not_found(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test reset_offsets raises TopicNotFound for missing topic."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {}
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_cls.return_value = mock_admin
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(TopicNotFound, match="Topic 'nonexistent' not found"):
+                reset_offsets(client, enforcer, "test-group", "nonexistent")
+
+    def test_reset_offsets_invalid_partition(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test reset_offsets raises error for invalid partition."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_cls.return_value = mock_admin
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(KafkaOperationError, match="Partition 5 does not exist"):
+                reset_offsets(client, enforcer, "test-group", "test-topic", partition=5)
+
+    def test_reset_offsets_invalid_offset_string(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test reset_offsets raises ValidationError for invalid offset string."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_offset_result = MagicMock()
+            mock_offset_result.topic_partitions = []
+
+            mock_offset_future = Future()
+            mock_offset_future.set_result(mock_offset_result)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.list_consumer_group_offsets.return_value = {"test-group": mock_offset_future}
+            mock_cls.return_value = mock_admin
+
+            mock_consumer = MagicMock()
+            mock_consumer.get_watermark_offsets.return_value = (0, 150)
+
+            client = KafkaClientWrapper(kafka_config)
+            client.temporary_consumer = MagicMock()
+            client.temporary_consumer.return_value.__enter__ = MagicMock(return_value=mock_consumer)
+            client.temporary_consumer.return_value.__exit__ = MagicMock(return_value=False)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(ValidationError, match="Invalid offset string"):
+                reset_offsets(client, enforcer, "test-group", "test-topic", offset="invalid")
+
+    def test_reset_offsets_coordinator_not_available(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test reset_offsets handles COORDINATOR_NOT_AVAILABLE error."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_offset_result = MagicMock()
+            mock_offset_result.topic_partitions = []
+
+            mock_offset_future = Future()
+            mock_offset_future.set_result(mock_offset_result)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.list_consumer_group_offsets.return_value = {"test-group": mock_offset_future}
+            mock_admin.alter_consumer_group_offsets.side_effect = KafkaException(
+                "COORDINATOR_NOT_AVAILABLE: Group coordinator not available"
+            )
+            mock_cls.return_value = mock_admin
+
+            mock_consumer = MagicMock()
+            mock_consumer.get_watermark_offsets.return_value = (0, 150)
+
+            client = KafkaClientWrapper(kafka_config)
+            client.temporary_consumer = MagicMock()
+            client.temporary_consumer.return_value.__enter__ = MagicMock(return_value=mock_consumer)
+            client.temporary_consumer.return_value.__exit__ = MagicMock(return_value=False)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(KafkaOperationError, match="coordinator not available"):
+                reset_offsets(client, enforcer, "test-group", "test-topic")
+
+    def test_reset_offsets_group_not_found_via_kafka_exception(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test reset_offsets handles GROUP_ID_NOT_FOUND KafkaException."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_offset_result = MagicMock()
+            mock_offset_result.topic_partitions = []
+
+            mock_offset_future = Future()
+            mock_offset_future.set_result(mock_offset_result)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.list_consumer_group_offsets.return_value = {"test-group": mock_offset_future}
+            mock_admin.alter_consumer_group_offsets.side_effect = KafkaException(
+                "GROUP_ID_NOT_FOUND: Group not found"
+            )
+            mock_cls.return_value = mock_admin
+
+            mock_consumer = MagicMock()
+            mock_consumer.get_watermark_offsets.return_value = (0, 150)
+
+            client = KafkaClientWrapper(kafka_config)
+            client.temporary_consumer = MagicMock()
+            client.temporary_consumer.return_value.__enter__ = MagicMock(return_value=mock_consumer)
+            client.temporary_consumer.return_value.__exit__ = MagicMock(return_value=False)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(ConsumerGroupNotFound, match="not found"):
+                reset_offsets(client, enforcer, "test-group", "test-topic")
+
+    def test_reset_offsets_group_is_active(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test reset_offsets handles active group error."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_offset_result = MagicMock()
+            mock_offset_result.topic_partitions = []
+
+            mock_offset_future = Future()
+            mock_offset_future.set_result(mock_offset_result)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.list_consumer_group_offsets.return_value = {"test-group": mock_offset_future}
+            mock_admin.alter_consumer_group_offsets.side_effect = KafkaException(
+                "NOT_COORDINATOR: Group has active members"
+            )
+            mock_cls.return_value = mock_admin
+
+            mock_consumer = MagicMock()
+            mock_consumer.get_watermark_offsets.return_value = (0, 150)
+
+            client = KafkaClientWrapper(kafka_config)
+            client.temporary_consumer = MagicMock()
+            client.temporary_consumer.return_value.__enter__ = MagicMock(return_value=mock_consumer)
+            client.temporary_consumer.return_value.__exit__ = MagicMock(return_value=False)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(KafkaOperationError, match="must be inactive"):
+                reset_offsets(client, enforcer, "test-group", "test-topic")
+
+    def test_reset_offsets_alter_partition_error(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test reset_offsets handles alter result with partition error."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_offset_result = MagicMock()
+            mock_offset_result.topic_partitions = []
+
+            mock_offset_future = Future()
+            mock_offset_future.set_result(mock_offset_result)
+
+            # Mock alter result with error
+            mock_alter_tp = MagicMock()
+            mock_alter_tp.topic = "test-topic"
+            mock_alter_tp.partition = 0
+            mock_alter_tp.error = "UNKNOWN_MEMBER_ID"
+
+            mock_alter_result = MagicMock()
+            mock_alter_result.topic_partitions = [mock_alter_tp]
+
+            mock_alter_future = Future()
+            mock_alter_future.set_result(mock_alter_result)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.list_consumer_group_offsets.return_value = {"test-group": mock_offset_future}
+            mock_admin.alter_consumer_group_offsets.return_value = {"test-group": mock_alter_future}
+            mock_cls.return_value = mock_admin
+
+            mock_consumer = MagicMock()
+            mock_consumer.get_watermark_offsets.return_value = (0, 150)
+
+            client = KafkaClientWrapper(kafka_config)
+            client.temporary_consumer = MagicMock()
+            client.temporary_consumer.return_value.__enter__ = MagicMock(return_value=mock_consumer)
+            client.temporary_consumer.return_value.__exit__ = MagicMock(return_value=False)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(KafkaOperationError, match="Failed to reset offset"):
+                reset_offsets(client, enforcer, "test-group", "test-topic")
+
+    def test_reset_offsets_generic_kafka_exception(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test reset_offsets handles generic KafkaException."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_offset_result = MagicMock()
+            mock_offset_result.topic_partitions = []
+
+            mock_offset_future = Future()
+            mock_offset_future.set_result(mock_offset_result)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.list_consumer_group_offsets.return_value = {"test-group": mock_offset_future}
+            mock_admin.alter_consumer_group_offsets.side_effect = KafkaException(
+                "NETWORK_EXCEPTION: Connection lost"
+            )
+            mock_cls.return_value = mock_admin
+
+            mock_consumer = MagicMock()
+            mock_consumer.get_watermark_offsets.return_value = (0, 150)
+
+            client = KafkaClientWrapper(kafka_config)
+            client.temporary_consumer = MagicMock()
+            client.temporary_consumer.return_value.__enter__ = MagicMock(return_value=mock_consumer)
+            client.temporary_consumer.return_value.__exit__ = MagicMock(return_value=False)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(KafkaOperationError, match="Failed to reset offsets"):
+                reset_offsets(client, enforcer, "test-group", "test-topic")

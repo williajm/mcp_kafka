@@ -4,13 +4,19 @@ from concurrent.futures import Future
 from typing import Any
 
 from confluent_kafka import KafkaException
-from confluent_kafka.admin import ConfigResource, ResourceType
+from confluent_kafka.admin import ConfigResource, NewTopic, ResourceType
 from loguru import logger
 
-from mcp_kafka.fastmcp_tools.common import PartitionInfo, TopicDetail, TopicInfo
+from mcp_kafka.fastmcp_tools.common import PartitionInfo, TopicCreated, TopicDetail, TopicInfo
 from mcp_kafka.kafka_wrapper.client import KafkaClientWrapper
 from mcp_kafka.safety.core import AccessEnforcer
-from mcp_kafka.utils.errors import KafkaOperationError, TopicNotFound
+from mcp_kafka.utils.errors import KafkaOperationError, TopicNotFound, ValidationError
+
+# Constants
+# Maximum partitions per topic (Kafka's recommended limit for cluster stability)
+MAX_PARTITIONS = 10000
+# Maximum replication factor (reasonable limit; actual max depends on broker count)
+MAX_REPLICATION_FACTOR = 15
 
 
 def list_topics(
@@ -169,3 +175,84 @@ def _get_topic_config(client: KafkaClientWrapper, topic: str) -> dict[str, str]:
     except Exception as e:
         logger.warning(f"Failed to get topic config for '{topic}': {e}")
         return {}
+
+
+def create_topic(  # noqa: PLR0913
+    client: KafkaClientWrapper,
+    enforcer: AccessEnforcer,
+    topic: str,
+    partitions: int = 1,
+    replication_factor: int = 1,
+    config: dict[str, str] | None = None,
+) -> TopicCreated:
+    """Create a new Kafka topic.
+
+    Args:
+        client: Kafka client wrapper
+        enforcer: Access enforcer for validation
+        topic: Topic name to create
+        partitions: Number of partitions (default: 1)
+        replication_factor: Replication factor (default: 1)
+        config: Optional topic configuration (e.g., retention.ms, cleanup.policy)
+
+    Returns:
+        TopicCreated response with created topic details
+
+    Raises:
+        ValidationError: If topic name is invalid or parameters are out of range
+        SafetyError: If topic name is protected
+        KafkaOperationError: If topic already exists or creation fails
+    """
+    # Validate topic name and access
+    enforcer.validate_topic_name(topic)
+
+    # Validate partitions and replication factor
+    if partitions < 1:
+        raise ValidationError("Number of partitions must be at least 1")
+    if partitions > MAX_PARTITIONS:
+        raise ValidationError(f"Number of partitions cannot exceed {MAX_PARTITIONS}")
+    if replication_factor < 1:
+        raise ValidationError("Replication factor must be at least 1")
+    if replication_factor > MAX_REPLICATION_FACTOR:
+        raise ValidationError(f"Replication factor cannot exceed {MAX_REPLICATION_FACTOR}")
+
+    try:
+        logger.debug(f"Creating topic: {topic} (partitions={partitions}, rf={replication_factor})")
+
+        # Check if topic already exists
+        metadata = client.admin.list_topics(timeout=client.config.timeout)
+        if topic in metadata.topics:
+            raise KafkaOperationError(f"Topic '{topic}' already exists")
+
+        # Create new topic specification
+        topic_config = config or {}
+        new_topic = NewTopic(
+            topic=topic,
+            num_partitions=partitions,
+            replication_factor=replication_factor,
+            config=topic_config,
+        )
+
+        # Create the topic
+        futures = client.admin.create_topics([new_topic])
+
+        # Wait for creation to complete
+        for topic_name, future in futures.items():
+            future.result(timeout=client.config.timeout)
+            logger.info(
+                f"Created topic '{topic_name}': "
+                f"{partitions} partitions, replication factor {replication_factor}"
+            )
+
+        return TopicCreated(
+            topic=topic,
+            partitions=partitions,
+            replication_factor=replication_factor,
+            config=topic_config,
+        )
+
+    except KafkaOperationError:
+        raise
+    except KafkaException as e:
+        logger.error(f"Failed to create topic '{topic}': {e}")
+        raise KafkaOperationError(f"Failed to create topic '{topic}': {e}") from e

@@ -74,14 +74,14 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 |------|--------|-------------|
 | `kafka_list_topics` | READ | List all topics with partition counts |
 | `kafka_describe_topic` | READ | Get detailed topic info and configuration |
-| `kafka_create_topic` | READ/WRITE | Create a new topic |
+| `kafka_create_topic` | READ/WRITE | Create a new topic with partitions, replication factor, and config |
 
 ### Message Operations
 
 | Tool | Access | Description |
 |------|--------|-------------|
 | `kafka_consume_messages` | READ | Peek at messages (no offset commit) |
-| `kafka_produce_message` | READ/WRITE | Produce a message to a topic |
+| `kafka_produce_message` | READ/WRITE | Produce a message with optional key, headers, and partition |
 
 ### Consumer Group Management
 
@@ -90,7 +90,7 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 | `kafka_list_consumer_groups` | READ | List all consumer groups |
 | `kafka_describe_consumer_group` | READ | Get group details, members, and lag |
 | `kafka_get_consumer_lag` | READ | Get lag per partition |
-| `kafka_reset_offsets` | READ/WRITE | Reset consumer group offsets |
+| `kafka_reset_offsets` | READ/WRITE | Reset consumer group offsets to earliest, latest, or specific offset |
 
 ### Cluster Information
 

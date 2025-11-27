@@ -13,16 +13,20 @@ from mcp_kafka.fastmcp_tools.common import (
     ConsumedMessage,
     ConsumerGroupDetail,
     ConsumerGroupInfo,
+    OffsetResetResult,
     PartitionLag,
+    ProduceResult,
+    TopicCreated,
     TopicDetail,
     TopicInfo,
     WatermarkInfo,
 )
 from mcp_kafka.kafka_wrapper.client import KafkaClientWrapper
 from mcp_kafka.safety.core import AccessEnforcer
+from mcp_kafka.utils.errors import ValidationError
 
 
-def register_tools(
+def register_tools(  # noqa: PLR0915
     mcp: FastMCP,
     client: KafkaClientWrapper,
     enforcer: AccessEnforcer,
@@ -165,10 +169,97 @@ def register_tools(
 
     logger.success("Registered 9 Kafka READ tools")
 
+    # ==================== WRITE TOOLS ====================
+    # These tools require SAFETY_ALLOW_WRITE_OPERATIONS=true
+
+    @mcp.tool(
+        name="kafka_create_topic",
+        description="Create a new Kafka topic (requires write access)",
+    )
+    def kafka_create_topic(
+        topic_name: Annotated[str, Field(description="Name of the topic to create")],
+        partitions: Annotated[
+            int, Field(description="Number of partitions (1-10000)", ge=1, le=10000)
+        ] = 1,
+        replication_factor: Annotated[
+            int,
+            Field(
+                description="Replication factor (1-15, must not exceed broker count)",
+                ge=1,
+                le=15,
+            ),
+        ] = 1,
+        config: Annotated[
+            dict[str, str] | None,
+            Field(description="Topic configuration (e.g., retention.ms, cleanup.policy)"),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Create a new Kafka topic."""
+        enforcer.validate_tool_access("kafka_create_topic")
+        result = topic.create_topic(
+            client, enforcer, topic_name, partitions, replication_factor, config
+        )
+        return result.model_dump()
+
+    @mcp.tool(
+        name="kafka_produce_message",
+        description="Produce a message to a Kafka topic (requires write access)",
+    )
+    def kafka_produce_message(
+        topic_name: Annotated[str, Field(description="Topic name to produce to")],
+        value: Annotated[str, Field(description="Message value (string)")],
+        key: Annotated[str | None, Field(description="Optional message key")] = None,
+        partition: Annotated[
+            int | None, Field(description="Specific partition to produce to (None = auto)")
+        ] = None,
+        headers: Annotated[
+            dict[str, str] | None, Field(description="Optional message headers")
+        ] = None,
+    ) -> dict[str, Any]:
+        """Produce a message to a Kafka topic."""
+        enforcer.validate_tool_access("kafka_produce_message")
+        result = message.produce_message(
+            client, enforcer, topic_name, value, key, partition, headers
+        )
+        return result.model_dump()
+
+    @mcp.tool(
+        name="kafka_reset_offsets",
+        description="Reset consumer group offsets (requires write access, group must be inactive)",
+    )
+    def kafka_reset_offsets(
+        group_id: Annotated[str, Field(description="Consumer group ID")],
+        topic_name: Annotated[str, Field(description="Topic name to reset offsets for")],
+        partition: Annotated[
+            int | None, Field(description="Specific partition to reset (None = all partitions)")
+        ] = None,
+        offset: Annotated[
+            str, Field(description="Target offset: 'earliest', 'latest', or a numeric offset")
+        ] = "latest",
+    ) -> list[dict[str, Any]]:
+        """Reset consumer group offsets."""
+        enforcer.validate_tool_access("kafka_reset_offsets")
+        # Convert string offset to int if it's a numeric string
+        offset_value: int | str = offset
+        if offset not in ("earliest", "latest"):
+            try:
+                offset_value = int(offset)
+            except ValueError as e:
+                raise ValidationError(
+                    f"Invalid offset '{offset}'. Must be 'earliest', 'latest', or a number"
+                ) from e
+        results = consumer_group.reset_offsets(
+            client, enforcer, group_id, topic_name, partition, offset_value
+        )
+        return [r.model_dump() for r in results]
+
+    logger.success("Registered 3 Kafka WRITE tools")
+
 
 # Export models for type hints
 __all__ = [
     "register_tools",
+    # READ models
     "TopicInfo",
     "TopicDetail",
     "ConsumerGroupInfo",
@@ -178,4 +269,8 @@ __all__ = [
     "BrokerInfo",
     "WatermarkInfo",
     "ConsumedMessage",
+    # WRITE models
+    "TopicCreated",
+    "ProduceResult",
+    "OffsetResetResult",
 ]

@@ -5,7 +5,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
-from confluent_kafka import Consumer, KafkaException
+from confluent_kafka import Consumer, KafkaException, Producer
 from confluent_kafka.admin import AdminClient
 from loguru import logger
 
@@ -215,6 +215,15 @@ class KafkaClientWrapper:
         config["auto.offset.reset"] = auto_offset_reset
         return config
 
+    def create_producer_config(self) -> dict[str, Any]:
+        """Create producer configuration with the wrapper's connection settings.
+
+        Returns:
+            Configuration dictionary for confluent-kafka Producer
+
+        """
+        return self._build_client_config()
+
     @contextmanager
     def temporary_consumer(
         self,
@@ -251,6 +260,28 @@ class KafkaClientWrapper:
             yield consumer
         finally:
             consumer.close()
+
+    @contextmanager
+    def temporary_producer(self) -> Generator[Producer, None, None]:
+        """Context manager for creating a temporary producer.
+
+        Creates a producer with the wrapper's connection settings and ensures
+        proper flush on exit.
+
+        Yields:
+            Producer instance
+
+        Example:
+            with wrapper.temporary_producer() as producer:
+                producer.produce(topic, value=b"message")
+
+        """
+        config = self.create_producer_config()
+        producer = Producer(config)
+        try:
+            yield producer
+        finally:
+            producer.flush(timeout=self.config.timeout)
 
     @contextmanager
     def acquire(self) -> Generator[AdminClient, None, None]:

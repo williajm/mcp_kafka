@@ -110,3 +110,64 @@ class ConsumedMessage(BaseModel):
     key: str | None = Field(default=None, description="Message key (decoded as UTF-8 if present)")
     value: str | None = Field(default=None, description="Message value (decoded as UTF-8)")
     headers: dict[str, str] = Field(default_factory=dict, description="Message headers")
+
+
+# WRITE operation response models
+
+
+class TopicCreated(BaseModel):
+    """Response for successful topic creation."""
+
+    topic: str = Field(description=DESC_TOPIC_NAME)
+    partitions: int = Field(description="Number of partitions created")
+    replication_factor: int = Field(description="Replication factor")
+    config: dict[str, str] = Field(default_factory=dict, description="Topic configuration applied")
+
+
+class ProduceResult(BaseModel):
+    """Result of producing a message to Kafka."""
+
+    topic: str = Field(description=DESC_TOPIC_NAME)
+    partition: int = Field(description="Partition the message was written to")
+    offset: int = Field(description="Offset of the produced message")
+    timestamp: int | None = Field(default=None, description="Message timestamp (ms since epoch)")
+
+
+class OffsetResetResult(BaseModel):
+    """Result of resetting offsets for a consumer group."""
+
+    group_id: str = Field(description="Consumer group ID")
+    topic: str = Field(description=DESC_TOPIC_NAME)
+    partition: int = Field(description=DESC_PARTITION_ID)
+    previous_offset: int = Field(description="Previous committed offset")
+    new_offset: int = Field(description="New offset after reset")
+
+
+# Shared validation helpers
+
+
+def validate_partition_exists(
+    partition: int | None,
+    partition_count: int,
+    topic: str,
+) -> None:
+    """Validate that a partition exists for the given topic.
+
+    Args:
+        partition: Partition number to validate (None skips validation)
+        partition_count: Total number of partitions in the topic
+        topic: Topic name for error messages
+
+    Raises:
+        KafkaOperationError: If partition does not exist
+    """
+    from mcp_kafka.utils.errors import KafkaOperationError  # noqa: PLC0415
+
+    if partition is None:
+        return
+    if partition < 0 or partition >= partition_count:
+        max_partition = partition_count - 1
+        raise KafkaOperationError(
+            f"Partition {partition} does not exist. "
+            f"Topic '{topic}' has {partition_count} partitions (0-{max_partition})"
+        )

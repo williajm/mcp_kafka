@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mcp_kafka.config import KafkaConfig, SafetyConfig
-from mcp_kafka.fastmcp_tools.message import consume_messages
+from mcp_kafka.fastmcp_tools.message import consume_messages, produce_message
 from mcp_kafka.kafka_wrapper.client import KafkaClientWrapper
 from mcp_kafka.safety.core import AccessEnforcer
 from mcp_kafka.utils.errors import (
@@ -493,3 +493,403 @@ class TestConsumeMessages:
 
                 assert len(messages) == 1
                 assert messages[0].timestamp is None
+
+
+class TestProduceMessage:
+    """Tests for produce_message function."""
+
+    def test_produce_message_success(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test producing a message successfully."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            with patch("mcp_kafka.fastmcp_tools.message.Producer") as mock_producer_cls:
+                mock_partition = MagicMock()
+                mock_partition.replicas = [1]
+
+                mock_topic = MagicMock()
+                mock_topic.partitions = {0: mock_partition}
+
+                mock_metadata = MagicMock()
+                mock_metadata.brokers = {1: MagicMock()}
+                mock_metadata.topics = {"test-topic": mock_topic}
+
+                mock_admin = MagicMock()
+                mock_admin.list_topics.return_value = mock_metadata
+                mock_admin_cls.return_value = mock_admin
+
+                # Mock producer with delivery callback simulation
+                mock_producer = MagicMock()
+
+                def produce_side_effect(**kwargs: Any) -> None:
+                    # Simulate delivery callback
+                    callback = kwargs.get("callback")
+                    if callback:
+                        mock_msg = MagicMock()
+                        mock_msg.topic.return_value = "test-topic"
+                        mock_msg.partition.return_value = 0
+                        mock_msg.offset.return_value = 42
+                        mock_msg.timestamp.return_value = (1, 1234567890000)
+                        callback(None, mock_msg)
+
+                mock_producer.produce.side_effect = produce_side_effect
+                mock_producer_cls.return_value = mock_producer
+
+                client = KafkaClientWrapper(kafka_config)
+                enforcer = AccessEnforcer(safety_config)
+
+                result = produce_message(client, enforcer, "test-topic", value="Hello, Kafka!")
+
+                assert result.topic == "test-topic"
+                assert result.partition == 0
+                assert result.offset == 42
+                mock_producer.flush.assert_called()
+
+    def test_produce_message_with_key(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test producing a message with a key."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            with patch("mcp_kafka.fastmcp_tools.message.Producer") as mock_producer_cls:
+                mock_partition = MagicMock()
+                mock_partition.replicas = [1]
+
+                mock_topic = MagicMock()
+                mock_topic.partitions = {0: mock_partition}
+
+                mock_metadata = MagicMock()
+                mock_metadata.brokers = {1: MagicMock()}
+                mock_metadata.topics = {"test-topic": mock_topic}
+
+                mock_admin = MagicMock()
+                mock_admin.list_topics.return_value = mock_metadata
+                mock_admin_cls.return_value = mock_admin
+
+                mock_producer = MagicMock()
+
+                def produce_side_effect(**kwargs: Any) -> None:
+                    callback = kwargs.get("callback")
+                    if callback:
+                        mock_msg = MagicMock()
+                        mock_msg.topic.return_value = "test-topic"
+                        mock_msg.partition.return_value = 0
+                        mock_msg.offset.return_value = 100
+                        mock_msg.timestamp.return_value = (1, 1234567890000)
+                        callback(None, mock_msg)
+
+                mock_producer.produce.side_effect = produce_side_effect
+                mock_producer_cls.return_value = mock_producer
+
+                client = KafkaClientWrapper(kafka_config)
+                enforcer = AccessEnforcer(safety_config)
+
+                result = produce_message(
+                    client, enforcer, "test-topic", value="value", key="my-key"
+                )
+
+                assert result.topic == "test-topic"
+                # Verify key was passed to produce
+                call_kwargs = mock_producer.produce.call_args[1]
+                assert call_kwargs["key"] == b"my-key"
+
+    def test_produce_message_with_headers(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test producing a message with headers."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            with patch("mcp_kafka.fastmcp_tools.message.Producer") as mock_producer_cls:
+                mock_partition = MagicMock()
+                mock_partition.replicas = [1]
+
+                mock_topic = MagicMock()
+                mock_topic.partitions = {0: mock_partition}
+
+                mock_metadata = MagicMock()
+                mock_metadata.brokers = {1: MagicMock()}
+                mock_metadata.topics = {"test-topic": mock_topic}
+
+                mock_admin = MagicMock()
+                mock_admin.list_topics.return_value = mock_metadata
+                mock_admin_cls.return_value = mock_admin
+
+                mock_producer = MagicMock()
+
+                def produce_side_effect(**kwargs: Any) -> None:
+                    callback = kwargs.get("callback")
+                    if callback:
+                        mock_msg = MagicMock()
+                        mock_msg.topic.return_value = "test-topic"
+                        mock_msg.partition.return_value = 0
+                        mock_msg.offset.return_value = 100
+                        mock_msg.timestamp.return_value = (1, 1234567890000)
+                        callback(None, mock_msg)
+
+                mock_producer.produce.side_effect = produce_side_effect
+                mock_producer_cls.return_value = mock_producer
+
+                client = KafkaClientWrapper(kafka_config)
+                enforcer = AccessEnforcer(safety_config)
+
+                headers = {"correlation-id": "abc123", "content-type": "application/json"}
+                result = produce_message(
+                    client, enforcer, "test-topic", value="value", headers=headers
+                )
+
+                assert result.topic == "test-topic"
+                # Verify headers were passed to produce
+                call_kwargs = mock_producer.produce.call_args[1]
+                assert call_kwargs["headers"] == [
+                    ("correlation-id", b"abc123"),
+                    ("content-type", b"application/json"),
+                ]
+
+    def test_produce_message_specific_partition(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test producing to a specific partition."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            with patch("mcp_kafka.fastmcp_tools.message.Producer") as mock_producer_cls:
+                mock_partition = MagicMock()
+                mock_partition.replicas = [1]
+
+                mock_topic = MagicMock()
+                mock_topic.partitions = {0: mock_partition, 1: mock_partition, 2: mock_partition}
+
+                mock_metadata = MagicMock()
+                mock_metadata.brokers = {1: MagicMock()}
+                mock_metadata.topics = {"test-topic": mock_topic}
+
+                mock_admin = MagicMock()
+                mock_admin.list_topics.return_value = mock_metadata
+                mock_admin_cls.return_value = mock_admin
+
+                mock_producer = MagicMock()
+
+                def produce_side_effect(**kwargs: Any) -> None:
+                    callback = kwargs.get("callback")
+                    if callback:
+                        mock_msg = MagicMock()
+                        mock_msg.topic.return_value = "test-topic"
+                        mock_msg.partition.return_value = 2
+                        mock_msg.offset.return_value = 50
+                        mock_msg.timestamp.return_value = (1, 1234567890000)
+                        callback(None, mock_msg)
+
+                mock_producer.produce.side_effect = produce_side_effect
+                mock_producer_cls.return_value = mock_producer
+
+                client = KafkaClientWrapper(kafka_config)
+                enforcer = AccessEnforcer(safety_config)
+
+                result = produce_message(client, enforcer, "test-topic", value="value", partition=2)
+
+                assert result.partition == 2
+                # Verify partition was passed to produce
+                call_kwargs = mock_producer.produce.call_args[1]
+                assert call_kwargs["partition"] == 2
+
+    def test_produce_message_topic_not_found(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test produce_message raises TopicNotFound for missing topic."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {}
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin_cls.return_value = mock_admin
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(TopicNotFound, match="Topic 'nonexistent' not found"):
+                produce_message(client, enforcer, "nonexistent", value="test")
+
+    def test_produce_message_protected_topic(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test produce_message raises SafetyError for protected topics."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            mock_admin_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(SafetyError, match="not allowed"):
+                produce_message(client, enforcer, "__consumer_offsets", value="test")
+
+    def test_produce_message_invalid_topic_name(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test produce_message raises ValidationError for invalid topic name."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            mock_admin_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(ValidationError, match="Invalid topic name"):
+                produce_message(client, enforcer, "invalid topic!", value="test")
+
+    def test_produce_message_invalid_partition(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test produce_message raises error for invalid partition."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}  # Only partition 0 exists
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"test-topic": mock_topic}
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin_cls.return_value = mock_admin
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(KafkaOperationError, match="Partition 5 does not exist"):
+                produce_message(client, enforcer, "test-topic", value="test", partition=5)
+
+    def test_produce_message_size_exceeds_limit(self, kafka_config: KafkaConfig) -> None:
+        """Test produce_message raises ValidationError for message exceeding size limit."""
+        safety_config = SafetyConfig(max_message_size=10)  # Very small limit
+
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            mock_admin_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(ValidationError, match="exceeds maximum"):
+                produce_message(client, enforcer, "test-topic", value="A" * 100)
+
+    def test_produce_message_delivery_failure(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test produce_message handles delivery failures."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            with patch("mcp_kafka.fastmcp_tools.message.Producer") as mock_producer_cls:
+                mock_partition = MagicMock()
+                mock_partition.replicas = [1]
+
+                mock_topic = MagicMock()
+                mock_topic.partitions = {0: mock_partition}
+
+                mock_metadata = MagicMock()
+                mock_metadata.brokers = {1: MagicMock()}
+                mock_metadata.topics = {"test-topic": mock_topic}
+
+                mock_admin = MagicMock()
+                mock_admin.list_topics.return_value = mock_metadata
+                mock_admin_cls.return_value = mock_admin
+
+                mock_producer = MagicMock()
+
+                def produce_side_effect(**kwargs: Any) -> None:
+                    callback = kwargs.get("callback")
+                    if callback:
+                        # Simulate delivery error
+                        callback("Delivery failed: broker unavailable", None)
+
+                mock_producer.produce.side_effect = produce_side_effect
+                mock_producer_cls.return_value = mock_producer
+
+                client = KafkaClientWrapper(kafka_config)
+                enforcer = AccessEnforcer(safety_config)
+
+                with pytest.raises(KafkaOperationError, match="delivery failed"):
+                    produce_message(client, enforcer, "test-topic", value="test")
+
+    def test_produce_message_no_confirmation(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test produce_message handles missing delivery confirmation."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            with patch("mcp_kafka.fastmcp_tools.message.Producer") as mock_producer_cls:
+                mock_partition = MagicMock()
+                mock_partition.replicas = [1]
+
+                mock_topic = MagicMock()
+                mock_topic.partitions = {0: mock_partition}
+
+                mock_metadata = MagicMock()
+                mock_metadata.brokers = {1: MagicMock()}
+                mock_metadata.topics = {"test-topic": mock_topic}
+
+                mock_admin = MagicMock()
+                mock_admin.list_topics.return_value = mock_metadata
+                mock_admin_cls.return_value = mock_admin
+
+                mock_producer = MagicMock()
+                # Don't call the callback - simulates timeout/no confirmation
+                mock_producer.produce.return_value = None
+                mock_producer_cls.return_value = mock_producer
+
+                client = KafkaClientWrapper(kafka_config)
+                enforcer = AccessEnforcer(safety_config)
+
+                with pytest.raises(KafkaOperationError, match="confirmation not received"):
+                    produce_message(client, enforcer, "test-topic", value="test")
+
+    def test_produce_message_kafka_exception(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test produce_message handles KafkaException during produce."""
+        from confluent_kafka import KafkaException
+
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            with patch("mcp_kafka.fastmcp_tools.message.Producer") as mock_producer_cls:
+                mock_partition = MagicMock()
+                mock_partition.replicas = [1]
+
+                mock_topic = MagicMock()
+                mock_topic.partitions = {0: mock_partition}
+
+                mock_metadata = MagicMock()
+                mock_metadata.brokers = {1: MagicMock()}
+                mock_metadata.topics = {"test-topic": mock_topic}
+
+                mock_admin = MagicMock()
+                mock_admin.list_topics.return_value = mock_metadata
+                mock_admin_cls.return_value = mock_admin
+
+                mock_producer = MagicMock()
+                mock_producer.produce.side_effect = KafkaException("Buffer full")
+                mock_producer_cls.return_value = mock_producer
+
+                client = KafkaClientWrapper(kafka_config)
+                enforcer = AccessEnforcer(safety_config)
+
+                with pytest.raises(KafkaOperationError, match="Failed to produce message"):
+                    produce_message(client, enforcer, "test-topic", value="test")
+
+    def test_produce_message_size_with_headers_exceeds_limit(
+        self, kafka_config: KafkaConfig
+    ) -> None:
+        """Test produce_message validates total message size including headers."""
+        # Set a small max message size
+        safety_config = SafetyConfig(max_message_size=50)
+
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_admin_cls:
+            mock_admin_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            # Small value but large headers should exceed limit
+            with pytest.raises(ValidationError, match="exceeds maximum"):
+                produce_message(
+                    client,
+                    enforcer,
+                    "test-topic",
+                    value="small",
+                    headers={"large-header": "A" * 100},
+                )

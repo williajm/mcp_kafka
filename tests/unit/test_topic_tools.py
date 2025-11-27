@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mcp_kafka.config import KafkaConfig, SafetyConfig
-from mcp_kafka.fastmcp_tools.topic import describe_topic, list_topics
+from mcp_kafka.fastmcp_tools.topic import create_topic, describe_topic, list_topics
 from mcp_kafka.kafka_wrapper.client import KafkaClientWrapper
 from mcp_kafka.safety.core import AccessEnforcer
 from mcp_kafka.utils.errors import KafkaOperationError, SafetyError, TopicNotFound, ValidationError
@@ -344,3 +344,210 @@ class TestDescribeTopic:
 
             assert result.name == "test-topic"
             assert result.config == {}  # Empty config due to failure
+
+
+class TestCreateTopic:
+    """Tests for create_topic function."""
+
+    def test_create_topic_success(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test creating a topic successfully."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            # Mock list_topics to show topic doesn't exist
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {}
+
+            # Mock create_topics
+            mock_create_future = Future()
+            mock_create_future.set_result(None)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.create_topics.return_value = {"new-topic": mock_create_future}
+            mock_cls.return_value = mock_admin
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            result = create_topic(client, enforcer, "new-topic", partitions=3, replication_factor=2)
+
+            assert result.topic == "new-topic"
+            assert result.partitions == 3
+            assert result.replication_factor == 2
+            mock_admin.create_topics.assert_called_once()
+
+    def test_create_topic_with_config(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test creating a topic with custom configuration."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {}
+
+            mock_create_future = Future()
+            mock_create_future.set_result(None)
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.create_topics.return_value = {"config-topic": mock_create_future}
+            mock_cls.return_value = mock_admin
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            topic_config = {"retention.ms": "604800000", "cleanup.policy": "compact"}
+            result = create_topic(
+                client,
+                enforcer,
+                "config-topic",
+                partitions=1,
+                replication_factor=1,
+                config=topic_config,
+            )
+
+            assert result.topic == "config-topic"
+            assert result.config == topic_config
+
+    def test_create_topic_already_exists(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test create_topic raises error when topic already exists."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_partition = MagicMock()
+            mock_partition.replicas = [1]
+
+            mock_topic = MagicMock()
+            mock_topic.partitions = {0: mock_partition}
+
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {"existing-topic": mock_topic}
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_cls.return_value = mock_admin
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(KafkaOperationError, match="already exists"):
+                create_topic(client, enforcer, "existing-topic")
+
+    def test_create_topic_invalid_name(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test create_topic raises ValidationError for invalid topic name."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(ValidationError, match="Invalid topic name"):
+                create_topic(client, enforcer, "invalid topic!")
+
+    def test_create_topic_protected_name(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test create_topic raises SafetyError for protected topic names."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(SafetyError, match="not allowed"):
+                create_topic(client, enforcer, "__internal-topic")
+
+    def test_create_topic_invalid_partitions_zero(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test create_topic raises ValidationError for zero partitions."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(ValidationError, match="at least 1"):
+                create_topic(client, enforcer, "test-topic", partitions=0)
+
+    def test_create_topic_invalid_partitions_negative(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test create_topic raises ValidationError for negative partitions."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(ValidationError, match="at least 1"):
+                create_topic(client, enforcer, "test-topic", partitions=-1)
+
+    def test_create_topic_invalid_partitions_exceeds_max(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test create_topic raises ValidationError when partitions exceed max."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(ValidationError, match="cannot exceed"):
+                create_topic(client, enforcer, "test-topic", partitions=10001)
+
+    def test_create_topic_invalid_replication_factor_zero(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test create_topic raises ValidationError for zero replication factor."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(ValidationError, match="Replication factor must be at least 1"):
+                create_topic(client, enforcer, "test-topic", replication_factor=0)
+
+    def test_create_topic_invalid_replication_factor_exceeds_max(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test create_topic raises ValidationError when replication factor exceeds max."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = MagicMock()
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(ValidationError, match="cannot exceed"):
+                create_topic(client, enforcer, "test-topic", replication_factor=16)
+
+    def test_create_topic_kafka_error(
+        self, kafka_config: KafkaConfig, safety_config: SafetyConfig
+    ) -> None:
+        """Test create_topic handles Kafka errors."""
+        from confluent_kafka import KafkaException
+
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_metadata = MagicMock()
+            mock_metadata.brokers = {1: MagicMock()}
+            mock_metadata.topics = {}
+
+            mock_create_future = Future()
+            mock_create_future.set_exception(KafkaException("Replication factor too high"))
+
+            mock_admin = MagicMock()
+            mock_admin.list_topics.return_value = mock_metadata
+            mock_admin.create_topics.return_value = {"test-topic": mock_create_future}
+            mock_cls.return_value = mock_admin
+
+            client = KafkaClientWrapper(kafka_config)
+            enforcer = AccessEnforcer(safety_config)
+
+            with pytest.raises(KafkaOperationError, match="Failed to create topic"):
+                create_topic(client, enforcer, "test-topic", replication_factor=5)
