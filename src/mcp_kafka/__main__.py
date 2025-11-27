@@ -3,14 +3,18 @@
 This module provides the main entry point for running the MCP Kafka server.
 """
 
+import asyncio
 import os
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from fastmcp import FastMCP
+from starlette.middleware import Middleware
 
-from mcp_kafka.config import Config
+from mcp_kafka.auth.middleware import OAuthMiddleware
+from mcp_kafka.config import Config, SecurityConfig
 from mcp_kafka.fastmcp_tools.registration import register_tools
 from mcp_kafka.kafka_wrapper import KafkaClientWrapper
 from mcp_kafka.middleware.stack import MiddlewareStack
@@ -18,12 +22,15 @@ from mcp_kafka.safety.core import AccessEnforcer
 from mcp_kafka.utils.logger import get_logger, setup_logger
 from mcp_kafka.version import __version__
 
+if TYPE_CHECKING:
+    from loguru import Logger
+
 
 class Transport(str, Enum):
     """Supported transport types."""
 
     stdio = "stdio"
-    sse = "sse"
+    http = "http"
 
 
 app = typer.Typer(
@@ -40,7 +47,9 @@ def version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
-def create_mcp_server(config: Config) -> tuple[FastMCP, KafkaClientWrapper, MiddlewareStack | None]:
+def create_mcp_server(
+    config: Config,
+) -> tuple[FastMCP, KafkaClientWrapper, MiddlewareStack | None]:
     """Create and configure the MCP server.
 
     Args:
@@ -66,22 +75,90 @@ def create_mcp_server(config: Config) -> tuple[FastMCP, KafkaClientWrapper, Midd
     return mcp, kafka_client, middleware
 
 
+def run_health_check(config: Config, logger: "Logger") -> None:
+    """Execute Kafka health check and exit.
+
+    Args:
+        config: Application configuration
+        logger: Logger instance
+
+    Raises:
+        typer.Exit: Always exits after health check
+    """
+    logger.info("Running health check...")
+    try:
+        kafka_client = KafkaClientWrapper(config.kafka)
+        health = kafka_client.health_check()
+        typer.echo(f"Kafka cluster: {health['status']}")
+        typer.echo(f"  Cluster ID: {health['cluster_id']}")
+        typer.echo(f"  Brokers: {health['broker_count']}")
+        typer.echo(f"  Topics: {health['topic_count']}")
+        kafka_client.close()
+    except Exception as e:
+        typer.echo(f"Health check failed: {e}", err=True)
+        raise typer.Exit(1) from e
+    raise typer.Exit(0)
+
+
+def create_http_middleware(security_config: SecurityConfig) -> list[Middleware]:
+    """Create HTTP middleware stack for the server.
+
+    Args:
+        security_config: Security configuration
+
+    Returns:
+        List of Starlette Middleware instances
+    """
+    middleware_list: list[Middleware] = []
+
+    # Add OAuth middleware if enabled
+    if security_config.oauth_enabled:
+        middleware_list.append(Middleware(OAuthMiddleware, config=security_config))
+
+    return middleware_list
+
+
+def warn_insecure_http_config(host: str, security_config: SecurityConfig, logger: "Logger") -> None:
+    """Log warnings for potentially insecure HTTP configurations.
+
+    Args:
+        host: Host address the server will bind to
+        security_config: Security configuration
+        logger: Logger instance
+    """
+    is_localhost = host in ("127.0.0.1", "localhost", "::1")
+
+    if not is_localhost:
+        logger.warning("=" * 60)
+        logger.warning("SECURITY WARNING: Server binding to non-localhost address")
+        logger.warning(f"  Host: {host}")
+
+        if not security_config.oauth_enabled:
+            logger.warning("  OAuth authentication is DISABLED")
+            logger.warning("  Anyone with network access can use all tools!")
+            logger.warning("  Consider enabling OAuth or using a reverse proxy")
+
+        logger.warning("  Traffic is unencrypted (no TLS)")
+        logger.warning("  Consider using a TLS-terminating reverse proxy")
+        logger.warning("=" * 60)
+
+
 @app.callback(invoke_without_command=True)
 def main(
     transport: Transport = typer.Option(
         Transport.stdio,
         "--transport",
-        help="Transport type (stdio or sse)",
+        help="Transport type (stdio or http)",
     ),
     host: str = typer.Option(
         "127.0.0.1",
         "--host",
-        help="Host to bind server (SSE transport only)",
+        help="Host to bind server (HTTP transport only)",
     ),
     port: int = typer.Option(
         8000,
         "--port",
-        help="Port to bind server (SSE transport only)",
+        help="Port to bind server (HTTP transport only)",
     ),
     _version: bool = typer.Option(
         False,
@@ -114,19 +191,7 @@ def main(
 
     # Health check mode
     if health_check:
-        logger.info("Running health check...")
-        try:
-            kafka_client = KafkaClientWrapper(config.kafka)
-            health = kafka_client.health_check()
-            typer.echo(f"Kafka cluster: {health['status']}")
-            typer.echo(f"  Cluster ID: {health['cluster_id']}")
-            typer.echo(f"  Brokers: {health['broker_count']}")
-            typer.echo(f"  Topics: {health['topic_count']}")
-            kafka_client.close()
-        except Exception as e:
-            typer.echo(f"Health check failed: {e}", err=True)
-            raise typer.Exit(1) from e
-        raise typer.Exit(0)
+        run_health_check(config, logger)
 
     # Create MCP server
     mcp, kafka_client, middleware = create_mcp_server(config)
@@ -139,11 +204,27 @@ def main(
         if transport == Transport.stdio:
             logger.info("Running in stdio mode...")
             mcp.run()
-        elif transport == Transport.sse:
-            logger.info(f"Running SSE server on {host}:{port}...")
-            # Note: OAuth middleware would be added here for SSE transport
-            # when config.security.oauth_enabled is True
-            mcp.run(transport="sse", host=host, port=port)
+        elif transport == Transport.http:
+            # Warn about insecure configurations
+            warn_insecure_http_config(host, config.security, logger)
+
+            # Build HTTP middleware stack (OAuth if enabled)
+            http_middleware = create_http_middleware(config.security)
+
+            logger.info(f"Running HTTP server on {host}:{port}...")
+            logger.info(f"OAuth: {'enabled' if config.security.oauth_enabled else 'disabled'}")
+
+            # Use run_http_async with middleware support
+            # The CLI option "http" maps to FastMCP's "streamable-http" transport,
+            # which is the modern MCP HTTP transport (SSE is deprecated)
+            asyncio.run(
+                mcp.run_http_async(
+                    transport="streamable-http",
+                    host=host,
+                    port=port,
+                    middleware=http_middleware if http_middleware else None,
+                )
+            )
     finally:
         # Cleanup
         if middleware:
