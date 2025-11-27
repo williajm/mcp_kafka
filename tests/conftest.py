@@ -1,10 +1,12 @@
 """Pytest fixtures for MCP Kafka tests."""
 
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from mcp_kafka.config import Config, KafkaConfig, SafetyConfig, SecurityConfig, ServerConfig
+from mcp_kafka.kafka_wrapper import KafkaClientWrapper
 
 
 @pytest.fixture
@@ -109,11 +111,12 @@ def mock_admin_client() -> MagicMock:
 
 
 @pytest.fixture
-def kafka_client_wrapper(kafka_config: KafkaConfig, mock_admin_client: MagicMock):
+def kafka_client_wrapper(
+    kafka_config: KafkaConfig, mock_admin_client: MagicMock
+) -> Generator[KafkaClientWrapper, None, None]:
     """Create Kafka client wrapper with mocked client."""
     with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
         mock_cls.return_value = mock_admin_client
-        from mcp_kafka.kafka_wrapper import KafkaClientWrapper
 
         wrapper = KafkaClientWrapper(kafka_config)
         yield wrapper
