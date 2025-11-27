@@ -37,7 +37,7 @@ def register_tools(
     logger.info("Registering Kafka tools")
 
     # Topic tools
-    @mcp.tool(  # type: ignore[misc]
+    @mcp.tool(
         name="kafka_list_topics",
         description="List all Kafka topics with metadata (partition count, replication factor)",
     )
@@ -52,7 +52,7 @@ def register_tools(
         topics = topic.list_topics(client, enforcer, include_internal)
         return [t.model_dump() for t in topics]
 
-    @mcp.tool(  # type: ignore[misc]
+    @mcp.tool(
         name="kafka_describe_topic",
         description="Get detailed information about a topic including partitions and configuration",
     )
@@ -65,7 +65,7 @@ def register_tools(
         return result.model_dump()
 
     # Consumer group tools
-    @mcp.tool(  # type: ignore[misc]
+    @mcp.tool(
         name="kafka_list_consumer_groups",
         description="List all consumer groups with their state and protocol type",
     )
@@ -80,7 +80,7 @@ def register_tools(
         groups = consumer_group.list_consumer_groups(client, enforcer, include_internal)
         return [g.model_dump() for g in groups]
 
-    @mcp.tool(  # type: ignore[misc]
+    @mcp.tool(
         name="kafka_describe_consumer_group",
         description="Get detailed consumer group information including members and lag",
     )
@@ -92,7 +92,7 @@ def register_tools(
         result = consumer_group.describe_consumer_group(client, enforcer, group_id)
         return result.model_dump()
 
-    @mcp.tool(  # type: ignore[misc]
+    @mcp.tool(
         name="kafka_get_consumer_lag",
         description="Get lag per partition for a consumer group",
     )
@@ -105,7 +105,7 @@ def register_tools(
         return [lag.model_dump() for lag in lags]
 
     # Cluster tools
-    @mcp.tool(  # type: ignore[misc]
+    @mcp.tool(
         name="kafka_cluster_info",
         description="Get Kafka cluster metadata (cluster ID, controller, broker/topic counts)",
     )
@@ -115,7 +115,7 @@ def register_tools(
         result = cluster.get_cluster_info(client, enforcer)
         return result.model_dump()
 
-    @mcp.tool(  # type: ignore[misc]
+    @mcp.tool(
         name="kafka_list_brokers",
         description="List all brokers in the Kafka cluster",
     )
@@ -125,7 +125,7 @@ def register_tools(
         brokers = cluster.list_brokers(client, enforcer)
         return [b.model_dump() for b in brokers]
 
-    @mcp.tool(  # type: ignore[misc]
+    @mcp.tool(
         name="kafka_get_watermarks",
         description="Get low/high watermarks and message counts for all partitions of a topic",
     )
@@ -138,7 +138,7 @@ def register_tools(
         return [w.model_dump() for w in watermarks]
 
     # Message tools
-    @mcp.tool(  # type: ignore[misc]
+    @mcp.tool(
         name="kafka_consume_messages",
         description="Consume messages from a topic (read-only peek, does not commit offsets)",
     )
