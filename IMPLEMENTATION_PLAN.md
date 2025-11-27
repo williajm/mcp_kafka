@@ -211,11 +211,11 @@ dev = [
 - Pydantic models for tool responses (common.py)
 - **Unit tests for all 9 tools** (52 new tests, 92% coverage)
 
-### Phase 4: READ/WRITE Tools (3 tools)
-- Topic: create
-- Message: produce
-- Consumer Group: reset_offsets
-- **Unit tests for each tool**
+### Phase 4: WRITE Tools (3 tools) ✅ COMPLETE
+- `kafka_create_topic`: Create new topics with configurable partitions, replication factor, and topic config
+- `kafka_produce_message`: Produce messages with key, headers, and partition targeting
+- `kafka_reset_offsets`: Reset consumer group offsets to earliest, latest, or specific offset
+- **Unit tests for all 3 tools** (30 new tests covering success paths and error handling)
 
 ### Phase 5: Middleware + Integration Tests
 - Rate limiting (via limits lib)
