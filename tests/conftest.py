@@ -7,6 +7,7 @@ import pytest
 
 from mcp_kafka.config import Config, KafkaConfig, SafetyConfig, SecurityConfig, ServerConfig
 from mcp_kafka.kafka_wrapper import KafkaClientWrapper
+from mcp_kafka.safety.core import AccessEnforcer
 
 
 @pytest.fixture
@@ -121,3 +122,15 @@ def kafka_client_wrapper(
         wrapper = KafkaClientWrapper(kafka_config)
         yield wrapper
         wrapper.close()
+
+
+@pytest.fixture
+def access_enforcer(safety_config: SafetyConfig) -> AccessEnforcer:
+    """Create access enforcer with default safety configuration."""
+    return AccessEnforcer(safety_config)
+
+
+@pytest.fixture
+def access_enforcer_write(safety_config_write: SafetyConfig) -> AccessEnforcer:
+    """Create access enforcer with write operations enabled."""
+    return AccessEnforcer(safety_config_write)

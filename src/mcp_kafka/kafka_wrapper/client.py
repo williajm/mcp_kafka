@@ -4,12 +4,15 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
-from confluent_kafka import KafkaException
+from confluent_kafka import Consumer, KafkaException
 from confluent_kafka.admin import AdminClient
 from loguru import logger
 
 from mcp_kafka.config import KafkaConfig
 from mcp_kafka.utils.errors import KafkaConnectionError, KafkaHealthCheckError
+
+# Consumer group ID prefix for temporary consumers
+TEMP_CONSUMER_PREFIX = "mcp-kafka"
 
 
 class KafkaClientWrapper:
@@ -154,6 +157,66 @@ class KafkaClientWrapper:
             # We release the reference to allow garbage collection
             self._admin_client = None
             logger.debug("Kafka client reference released")
+
+    def create_consumer_config(
+        self,
+        group_id: str,
+        enable_auto_commit: bool = False,
+        auto_offset_reset: str = "latest",
+    ) -> dict[str, Any]:
+        """Create consumer configuration with the wrapper's connection settings.
+
+        Args:
+            group_id: Consumer group ID
+            enable_auto_commit: Whether to enable auto commit (default: False)
+            auto_offset_reset: Offset reset policy (default: "latest")
+
+        Returns:
+            Configuration dictionary for confluent-kafka Consumer
+
+        """
+        config = self._build_client_config()
+        config["group.id"] = group_id
+        config["enable.auto.commit"] = enable_auto_commit
+        config["auto.offset.reset"] = auto_offset_reset
+        return config
+
+    @contextmanager
+    def temporary_consumer(
+        self,
+        group_id_suffix: str,
+        enable_auto_commit: bool = False,
+        auto_offset_reset: str = "latest",
+    ) -> Generator[Consumer, None, None]:
+        """Context manager for creating a temporary consumer.
+
+        Creates a consumer with the wrapper's connection settings and ensures
+        proper cleanup on exit.
+
+        Args:
+            group_id_suffix: Suffix for the consumer group ID (prefixed with TEMP_CONSUMER_PREFIX)
+            enable_auto_commit: Whether to enable auto commit (default: False)
+            auto_offset_reset: Offset reset policy (default: "latest")
+
+        Yields:
+            Consumer instance
+
+        Example:
+            with wrapper.temporary_consumer("lag-check") as consumer:
+                low, high = consumer.get_watermark_offsets(tp)
+
+        """
+        group_id = f"{TEMP_CONSUMER_PREFIX}-{group_id_suffix}"
+        config = self.create_consumer_config(
+            group_id=group_id,
+            enable_auto_commit=enable_auto_commit,
+            auto_offset_reset=auto_offset_reset,
+        )
+        consumer = Consumer(config)
+        try:
+            yield consumer
+        finally:
+            consumer.close()
 
     @contextmanager
     def acquire(self) -> Generator[AdminClient, None, None]:
