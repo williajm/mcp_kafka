@@ -12,7 +12,7 @@ echo ""
 
 docker build -t "$IMAGE_NAME:$VERSION" .
 
-if [ "$VERSION" != "latest" ]; then
+if [[ "$VERSION" != "latest" ]]; then
     docker tag "$IMAGE_NAME:$VERSION" "$IMAGE_NAME:latest"
 fi
 
