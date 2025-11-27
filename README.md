@@ -142,6 +142,19 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 | `SAFETY_MAX_CONSUME_MESSAGES` | `100` | Max messages per consume request |
 | `SAFETY_TOPIC_BLOCKLIST` | - | Comma-separated blocked topic patterns |
 
+#### Security Controls
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SECURITY_RATE_LIMIT_ENABLED` | `true` | Enable rate limiting |
+| `SECURITY_RATE_LIMIT_RPM` | `60` | Max requests per minute |
+| `SECURITY_AUDIT_LOG_ENABLED` | `true` | Enable audit logging |
+| `SECURITY_AUDIT_LOG_FILE` | `mcp_audit.log` | Audit log file path |
+| `SECURITY_OAUTH_ENABLED` | `false` | Enable OAuth/OIDC authentication |
+| `SECURITY_OAUTH_ISSUER` | - | OAuth issuer URL (e.g., https://auth.example.com) |
+| `SECURITY_OAUTH_AUDIENCE` | - | Expected JWT audience claim |
+| `SECURITY_OAUTH_JWKS_URL` | - | JWKS endpoint URL (auto-derived from issuer if not set) |
+
 ## Access Control
 
 MCP Kafka uses a simple 2-tier access control system:

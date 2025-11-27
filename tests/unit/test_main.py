@@ -17,10 +17,10 @@ class TestTransport:
         assert Transport.stdio == "stdio"
         assert Transport.stdio.value == "stdio"
 
-    def test_transport_http(self) -> None:
-        """Test http transport value."""
-        assert Transport.http == "http"
-        assert Transport.http.value == "http"
+    def test_transport_sse(self) -> None:
+        """Test sse transport value."""
+        assert Transport.sse == "sse"
+        assert Transport.sse.value == "sse"
 
 
 class TestCLI:
@@ -75,28 +75,50 @@ class TestCLI:
         # Error message goes to stderr, check output which combines both
         assert "Health check failed" in result.output or "Connection failed" in result.output
 
+    @patch("mcp_kafka.__main__.create_mcp_server")
     @patch("mcp_kafka.__main__.setup_logger")
-    def test_stdio_transport_not_implemented(self, mock_setup_logger: MagicMock) -> None:
-        """Test stdio transport shows not implemented."""
-        result = runner.invoke(app, ["--transport", "stdio"])
+    def test_stdio_transport_creates_server(
+        self, mock_setup_logger: MagicMock, mock_create_server: MagicMock
+    ) -> None:
+        """Test stdio transport creates and runs server."""
+        mock_mcp = MagicMock()
+        mock_kafka_client = MagicMock()
+        mock_middleware = MagicMock()
+        mock_create_server.return_value = (mock_mcp, mock_kafka_client, mock_middleware)
 
-        assert result.exit_code == 1
-        assert "not yet implemented" in result.stdout
+        runner.invoke(app, ["--transport", "stdio"])
 
+        # Server should be created
+        mock_create_server.assert_called_once()
+        # MCP.run should be called
+        mock_mcp.run.assert_called_once()
+        # Cleanup should happen
+        mock_middleware.close.assert_called_once()
+        mock_kafka_client.close.assert_called_once()
+
+    @patch("mcp_kafka.__main__.create_mcp_server")
     @patch("mcp_kafka.__main__.setup_logger")
-    def test_http_transport_not_implemented(self, mock_setup_logger: MagicMock) -> None:
-        """Test http transport shows not implemented."""
-        result = runner.invoke(app, ["--transport", "http"])
+    def test_sse_transport_creates_server(
+        self, mock_setup_logger: MagicMock, mock_create_server: MagicMock
+    ) -> None:
+        """Test SSE transport creates and runs server."""
+        mock_mcp = MagicMock()
+        mock_kafka_client = MagicMock()
+        mock_middleware = MagicMock()
+        mock_create_server.return_value = (mock_mcp, mock_kafka_client, mock_middleware)
 
-        assert result.exit_code == 1
-        assert "not yet implemented" in result.stdout
-        assert "HTTP transport" in result.stdout
+        runner.invoke(app, ["--transport", "sse", "--host", "0.0.0.0", "--port", "9000"])
 
-    @patch("mcp_kafka.__main__.setup_logger")
-    def test_host_and_port_options(self, mock_setup_logger: MagicMock) -> None:
-        """Test --host and --port options."""
-        result = runner.invoke(app, ["--transport", "http", "--host", "0.0.0.0", "--port", "9000"])
+        # Server should be created
+        mock_create_server.assert_called_once()
+        # MCP.run should be called with SSE params
+        mock_mcp.run.assert_called_once_with(transport="sse", host="0.0.0.0", port=9000)
+        # Cleanup should happen
+        mock_middleware.close.assert_called_once()
+        mock_kafka_client.close.assert_called_once()
 
-        # Should fail since not implemented, but host/port should be parsed
-        assert result.exit_code == 1
-        assert "0.0.0.0:9000" in result.stdout
+    def test_invalid_transport(self) -> None:
+        """Test invalid transport value."""
+        result = runner.invoke(app, ["--transport", "invalid"])
+
+        assert result.exit_code == 2  # Typer returns 2 for invalid choice

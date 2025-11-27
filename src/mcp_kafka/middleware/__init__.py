@@ -8,9 +8,11 @@ from mcp_kafka.middleware.safety import (
     ToolHandler,
     ToolResult,
 )
+from mcp_kafka.middleware.stack import MiddlewareStack
 
 __all__ = [
     "AuditMiddleware",
+    "MiddlewareStack",
     "RateLimitMiddleware",
     "SafetyMiddleware",
     "ToolContext",
