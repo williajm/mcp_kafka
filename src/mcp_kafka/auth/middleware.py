@@ -27,7 +27,7 @@ MAX_JWKS_RESPONSE_SIZE = 1024 * 1024  # 1MB max JWKS response
 ALLOWED_JWT_ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"]
 
 # Private IP ranges to block for SSRF protection
-# These are blocklisted ranges, not connection targets (NOSONAR - safe use)
+# These are blocklisted ranges, not connection targets
 PRIVATE_IP_RANGES = [
     ipaddress.ip_network("0.0.0.0/8"),  # "This" network (RFC 5735)  # NOSONAR
     ipaddress.ip_network("10.0.0.0/8"),  # NOSONAR
@@ -275,9 +275,8 @@ class OAuthValidator:
         except JoseError as e:
             logger.warning(f"JWT validation failed: {e}")
             raise AuthenticationError("Invalid or expired token") from e
-        except AuthorizationError:
-            raise
-        except AuthenticationError:
+        except (AuthorizationError, AuthenticationError):
+            # Let these propagate without transformation
             raise
 
 
