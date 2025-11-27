@@ -1,0 +1,61 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv/
+ENV/
+.eggs/
+*.egg-info/
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+junit/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build
+build/
+dist/
+*.whl
+
+# Docs
+docs/_build/
+
+# Local dev
+.env
+.env.local
+*.log
+mcp_audit.log
+mcp_kafka.log
+
+# Docker (keep Dockerfile, exclude compose files)
+docker-compose.yml
+.dockerignore
+
+# CI/CD
+.github/
+
+# Misc
+*.md
+!README.md
+scripts/
+tests/
+IMPLEMENTATION_PLAN.md

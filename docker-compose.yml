@@ -1,0 +1,140 @@
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: mcp-kafka-broker
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      # KRaft mode (no Zookeeper) - combined controller+broker
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Listeners
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Topic settings for single-node
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # Auto-create topics
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      # Cluster ID (required for KRaft)
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: mcp-kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # Data generator for testing
+  kafka-producer:
+    image: apache/kafka:3.9.1
+    container_name: mcp-kafka-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -eo pipefail
+        echo "Creating test topics..."
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic users --partitions 2 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic events --partitions 4 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic logs --partitions 1 --replication-factor 1
+
+        echo "Producing sample messages..."
+
+        # Orders (batch all messages, one producer call)
+        echo "  - orders: 20 messages"
+        (for i in {1..20}; do
+          echo "{\"order_id\": \"ORD-$$i\", \"customer\": \"customer_$$((i % 5))\", \"amount\": $$((RANDOM % 1000)), \"status\": \"pending\"}"
+        done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic orders
+
+        # Users
+        echo "  - users: 10 messages"
+        (for i in {1..10}; do
+          echo "{\"user_id\": \"USR-$$i\", \"name\": \"User $$i\", \"email\": \"user$$i@example.com\"}"
+        done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic users
+
+        # Events
+        echo "  - events: 30 messages"
+        (for i in {1..30}; do
+          event_types=("click" "view" "purchase" "login" "logout")
+          event_type=$${event_types[$$((RANDOM % 5))]}
+          echo "{\"event_id\": \"EVT-$$i\", \"type\": \"$$event_type\", \"user_id\": \"USR-$$((i % 10))\"}"
+        done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic events
+
+        # Logs
+        echo "  - logs: 15 messages"
+        (for i in {1..15}; do
+          levels=("INFO" "WARN" "ERROR" "DEBUG")
+          level=$${levels[$$((RANDOM % 4))]}
+          echo "{\"level\": \"$$level\", \"service\": \"api-gateway\", \"message\": \"Log message $$i\"}"
+        done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic logs
+
+        echo "Sample data created!"
+    profiles:
+      - seed
+
+  # Continuous producer for live activity
+  # Produces batches of messages every 5 seconds to simulate ongoing activity
+  kafka-live-producer:
+    image: apache/kafka:3.9.1
+    container_name: mcp-kafka-live
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Starting continuous message production (batches every 5s)..."
+        batch=1
+        while true; do
+          ts=$$(date -Iseconds)
+          echo "[$$ts] Producing batch $$batch..."
+
+          # Orders batch
+          (for i in 1 2 3; do
+            echo "{\"order_id\": \"ORD-LIVE-$$batch-$$i\", \"amount\": $$((RANDOM % 500)), \"status\": \"new\"}"
+          done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic orders 2>/dev/null
+
+          # Events batch
+          (for i in 1 2 3 4 5; do
+            event_types=("click" "view" "purchase")
+            echo "{\"event_id\": \"EVT-LIVE-$$batch-$$i\", \"type\": \"$${event_types[$$((RANDOM % 3))]}\"}"
+          done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic events 2>/dev/null
+
+          # Logs batch
+          (for i in 1 2; do
+            echo "{\"level\": \"INFO\", \"message\": \"Heartbeat $$batch-$$i\"}"
+          done) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic logs 2>/dev/null
+
+          batch=$$((batch + 1))
+          sleep 5
+        done
+    profiles:
+      - live
+
+volumes:
+  kafka_data:
