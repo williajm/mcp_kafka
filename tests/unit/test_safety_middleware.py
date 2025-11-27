@@ -254,7 +254,7 @@ class TestSafetyMiddlewareWrapHandler:
         config = SafetyConfig()
         middleware = SafetyMiddleware(config)
 
-        async def handler(ctx: ToolContext) -> ToolResult:
+        async def handler(ctx: ToolContext) -> ToolResult:  # NOSONAR - must be async to match ToolHandler type
             return ToolResult(success=True, data={"key": "value"})
 
         ctx = ToolContext(tool_name="kafka_list_topics", arguments={})
@@ -268,7 +268,7 @@ class TestSafetyMiddlewareWrapHandler:
         config = SafetyConfig()
         middleware = SafetyMiddleware(config)
 
-        async def handler(ctx: ToolContext) -> ToolResult:
+        async def handler(ctx: ToolContext) -> ToolResult:  # NOSONAR - must be async to match ToolHandler type
             return ToolResult(success=True)
 
         ctx = ToolContext(
@@ -286,7 +286,7 @@ class TestSafetyMiddlewareWrapHandler:
         config = SafetyConfig()
         middleware = SafetyMiddleware(config)
 
-        async def handler(ctx: ToolContext) -> ToolResult:
+        async def handler(ctx: ToolContext) -> ToolResult:  # NOSONAR - must be async to match ToolHandler type
             return ToolResult(success=True)
 
         ctx = ToolContext(
@@ -323,7 +323,7 @@ class TestSafetyMiddlewareCreateWrapper:
         config = SafetyConfig()
         middleware = SafetyMiddleware(config)
 
-        async def handler(ctx: ToolContext) -> ToolResult:
+        async def handler(ctx: ToolContext) -> ToolResult:  # NOSONAR - must be async to match ToolHandler type
             return ToolResult(success=True, data="original")
 
         wrapped = middleware.create_wrapper(handler)
@@ -338,7 +338,7 @@ class TestSafetyMiddlewareCreateWrapper:
         config = SafetyConfig()
         middleware = SafetyMiddleware(config)
 
-        async def handler(ctx: ToolContext) -> ToolResult:
+        async def handler(ctx: ToolContext) -> ToolResult:  # NOSONAR - must be async to match ToolHandler type
             return ToolResult(success=True)
 
         wrapped = middleware.create_wrapper(handler)

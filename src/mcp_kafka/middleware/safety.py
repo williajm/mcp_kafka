@@ -12,7 +12,7 @@ from loguru import logger
 
 from mcp_kafka.config import SafetyConfig
 from mcp_kafka.safety.core import AccessEnforcer, AccessLevel
-from mcp_kafka.utils.errors import SafetyError, UnsafeOperationError, ValidationError
+from mcp_kafka.utils.errors import SafetyError, ValidationError
 
 
 @dataclass
@@ -135,7 +135,7 @@ class SafetyMiddleware:
         try:
             self.validate_request(context)
             return await handler(context)
-        except (SafetyError, UnsafeOperationError, ValidationError) as e:
+        except (SafetyError, ValidationError) as e:
             logger.warning(f"Safety check failed for '{context.tool_name}': {e}")
             return ToolResult(success=False, error=str(e))
         except Exception as e:
