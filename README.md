@@ -102,6 +102,8 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 
 ## Configuration
 
+For detailed configuration options and examples, see [CONFIGURATION.md](CONFIGURATION.md).
+
 ### Environment Variables
 
 #### Kafka Connection

@@ -24,7 +24,8 @@ src/mcp_kafka/
 ├── middleware/
 │   ├── safety.py          # SafetyMiddleware, ToolContext, ToolResult, ToolHandler
 │   ├── rate_limit.py      # RateLimitMiddleware (sliding window via limits lib)
-│   └── audit.py           # AuditMiddleware (JSON logs, sensitive data redaction)
+│   ├── audit.py           # AuditMiddleware (JSON logs, sensitive data redaction)
+│   └── stack.py           # MiddlewareStack (unified middleware integration)
 ├── auth/
 │   └── middleware.py      # OAuthMiddleware, JWKSClient, OAuthValidator (via authlib)
 └── utils/
@@ -108,4 +109,4 @@ See `IMPLEMENTATION_PLAN.md` for full phase breakdown:
 - Phase 3: Complete (READ Tools)
 - Phase 4: Complete (WRITE Tools)
 - Phase 5: Complete (Middleware + Integration Tests)
-- Phase 6: Pending (Documentation)
+- Phase 6: Complete (Documentation)
