@@ -67,6 +67,7 @@ jobs:
           -Dsonar.projectKey=williajm_mcp_kafka \
           -Dsonar.sources=src \
           -Dsonar.tests=tests \
+          -Dsonar.python.version=3.11,3.12,3.13,3.14 \
           -Dsonar.python.coverage.reportPaths=coverage.xml \
           -Dsonar.host.url=https://sonarcloud.io \
           -Dsonar.qualitygate.wait=true \
