@@ -35,3 +35,15 @@ class TopicNotFound(MCPKafkaError):  # noqa: N818
 
 class ConsumerGroupNotFound(MCPKafkaError):  # noqa: N818
     """Raised when a consumer group is not found."""
+
+
+class RateLimitError(SafetyError):
+    """Raised when rate limit is exceeded."""
+
+
+class AuthenticationError(MCPKafkaError):
+    """Raised when authentication fails."""
+
+
+class AuthorizationError(MCPKafkaError):
+    """Raised when authorization fails."""

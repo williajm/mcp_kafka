@@ -22,7 +22,11 @@ src/mcp_kafka/
 ├── safety/
 │   └── core.py            # AccessEnforcer class
 ├── middleware/
-│   └── safety.py          # SafetyMiddleware, ToolContext, ToolResult
+│   ├── safety.py          # SafetyMiddleware, ToolContext, ToolResult, ToolHandler
+│   ├── rate_limit.py      # RateLimitMiddleware (sliding window via limits lib)
+│   └── audit.py           # AuditMiddleware (JSON logs, sensitive data redaction)
+├── auth/
+│   └── middleware.py      # OAuthMiddleware, JWKSClient, OAuthValidator (via authlib)
 └── utils/
     ├── errors.py          # Exception hierarchy
     └── validation.py      # Input validation
@@ -87,10 +91,21 @@ Key variables:
 - `SAFETY_ALLOW_WRITE_OPERATIONS`: Enable write tools (default: false)
 - `SAFETY_MAX_CONSUME_MESSAGES`: Limit per consume (default: 100)
 
+Security variables:
+- `SECURITY_RATE_LIMIT_ENABLED`: Enable rate limiting (default: true)
+- `SECURITY_RATE_LIMIT_RPM`: Requests per minute (default: 60)
+- `SECURITY_AUDIT_LOG_ENABLED`: Enable audit logging (default: true)
+- `SECURITY_AUDIT_LOG_FILE`: Audit log file path
+- `SECURITY_OAUTH_ENABLED`: Enable OAuth/OIDC authentication (default: false)
+- `SECURITY_OAUTH_ISSUER`: OAuth issuer URL
+- `SECURITY_OAUTH_AUDIENCE`: Expected audience claim
+- `SECURITY_OAUTH_JWKS_URL`: JWKS endpoint URL (derived from issuer if not set)
+
 ## Implementation Plan
 
 See `IMPLEMENTATION_PLAN.md` for full phase breakdown:
 - Phase 1-2: Complete (Foundation, Access Control)
 - Phase 3: Complete (READ Tools)
 - Phase 4: Complete (WRITE Tools)
-- Phase 5-6: Pending (Middleware, Docs)
+- Phase 5: Complete (Middleware + Integration Tests)
+- Phase 6: Pending (Documentation)

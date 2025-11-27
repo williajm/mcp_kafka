@@ -217,12 +217,13 @@ dev = [
 - `kafka_reset_offsets`: Reset consumer group offsets to earliest, latest, or specific offset
 - **Unit tests for all 3 tools** (30 new tests covering success paths and error handling)
 
-### Phase 5: Middleware + Integration Tests
-- Rate limiting (via limits lib)
-- Audit logging
-- OAuth middleware (via authlib)
-- **Integration tests with Kafka container**
-- **Fuzz tests**
+### Phase 5: Middleware + Integration Tests ✅ COMPLETE
+- **Rate limiting middleware** (via limits lib) - `RateLimitMiddleware` with sliding window rate limiter
+- **Audit logging middleware** - `AuditMiddleware` with JSON structured logs, sensitive data redaction, rotation
+- **OAuth middleware** (via authlib) - `OAuthMiddleware` with JWT validation, JWKS caching, Starlette integration
+- **Integration tests with Kafka container** - Using testcontainers for real Kafka operations
+- **Fuzz tests** (via hypothesis) - Property-based testing for validation functions
+- **Unit tests for middleware** (55 new tests, 89% coverage)
 
 ### Phase 6: Documentation
 - README, CONFIGURATION.md
