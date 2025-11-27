@@ -275,9 +275,6 @@ class OAuthValidator:
         except JoseError as e:
             logger.warning(f"JWT validation failed: {e}")
             raise AuthenticationError("Invalid or expired token") from e
-        except (AuthorizationError, AuthenticationError):
-            # Let these propagate without transformation
-            raise
 
 
 class OAuthMiddleware(BaseHTTPMiddleware):
