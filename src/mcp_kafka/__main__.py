@@ -8,9 +8,13 @@ from enum import Enum
 from pathlib import Path
 
 import typer
+from fastmcp import FastMCP
 
 from mcp_kafka.config import Config
+from mcp_kafka.fastmcp_tools.registration import register_tools
 from mcp_kafka.kafka_wrapper import KafkaClientWrapper
+from mcp_kafka.middleware.stack import MiddlewareStack
+from mcp_kafka.safety.core import AccessEnforcer
 from mcp_kafka.utils.logger import get_logger, setup_logger
 from mcp_kafka.version import __version__
 
@@ -19,7 +23,7 @@ class Transport(str, Enum):
     """Supported transport types."""
 
     stdio = "stdio"
-    http = "http"
+    sse = "sse"
 
 
 app = typer.Typer(
@@ -36,22 +40,48 @@ def version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+def create_mcp_server(config: Config) -> tuple[FastMCP, KafkaClientWrapper, MiddlewareStack | None]:
+    """Create and configure the MCP server.
+
+    Args:
+        config: Application configuration
+
+    Returns:
+        Tuple of (FastMCP server, Kafka client, Middleware stack)
+    """
+    # Create FastMCP server
+    mcp = FastMCP(
+        name=config.server.server_name,
+    )
+
+    # Create Kafka client
+    kafka_client = KafkaClientWrapper(config.kafka)
+
+    # Create access enforcer
+    enforcer = AccessEnforcer(config.safety)
+
+    # Register tools with middleware
+    middleware = register_tools(mcp, kafka_client, enforcer, config.security)
+
+    return mcp, kafka_client, middleware
+
+
 @app.callback(invoke_without_command=True)
 def main(
     transport: Transport = typer.Option(
         Transport.stdio,
         "--transport",
-        help="Transport type",
+        help="Transport type (stdio or sse)",
     ),
     host: str = typer.Option(
         "127.0.0.1",
         "--host",
-        help="Host to bind server",
+        help="Host to bind server (SSE transport only)",
     ),
     port: int = typer.Option(
         8000,
         "--port",
-        help="Port to bind server",
+        help="Port to bind server (SSE transport only)",
     ),
     _version: bool = typer.Option(
         False,
@@ -98,15 +128,28 @@ def main(
             raise typer.Exit(1) from e
         raise typer.Exit(0)
 
-    # Server mode - placeholder until FastMCP server is implemented
-    logger.info(f"Starting server with {transport} transport...")
+    # Create MCP server
+    mcp, kafka_client, middleware = create_mcp_server(config)
 
-    if transport == Transport.stdio:
-        typer.echo("stdio transport not yet implemented")
-        raise typer.Exit(1)
-    if transport == Transport.http:
-        typer.echo(f"HTTP transport on {host}:{port} not yet implemented")
-        raise typer.Exit(1)
+    logger.info(f"Starting server with {transport.value} transport...")
+    logger.info(f"Rate limiting: {'enabled' if config.security.rate_limit_enabled else 'disabled'}")
+    logger.info(f"Audit logging: {'enabled' if config.security.audit_log_enabled else 'disabled'}")
+
+    try:
+        if transport == Transport.stdio:
+            logger.info("Running in stdio mode...")
+            mcp.run()
+        elif transport == Transport.sse:
+            logger.info(f"Running SSE server on {host}:{port}...")
+            # Note: OAuth middleware would be added here for SSE transport
+            # when config.security.oauth_enabled is True
+            mcp.run(transport="sse", host=host, port=port)
+    finally:
+        # Cleanup
+        if middleware:
+            middleware.close()
+        kafka_client.close()
+        logger.info("Server shutdown complete")
 
 
 if __name__ == "__main__":

@@ -1,11 +1,13 @@
 """Tool registration for FastMCP server."""
 
-from typing import Annotated, Any
+from collections.abc import Callable
+from typing import Annotated, Any, TypeVar
 
 from fastmcp import FastMCP
 from loguru import logger
 from pydantic import Field
 
+from mcp_kafka.config import SecurityConfig
 from mcp_kafka.fastmcp_tools import cluster, consumer_group, message, topic
 from mcp_kafka.fastmcp_tools.common import (
     BrokerInfo,
@@ -22,25 +24,59 @@ from mcp_kafka.fastmcp_tools.common import (
     WatermarkInfo,
 )
 from mcp_kafka.kafka_wrapper.client import KafkaClientWrapper
+from mcp_kafka.middleware.stack import MiddlewareStack
 from mcp_kafka.safety.core import AccessEnforcer
 from mcp_kafka.utils.errors import ValidationError
 
+T = TypeVar("T")
 
-def register_tools(  # noqa: PLR0915
+
+def _execute_with_middleware(
+    tool_name: str,
+    args: dict[str, Any],
+    middleware: MiddlewareStack | None,
+    enforcer: AccessEnforcer,
+    executor: Callable[[], T],
+) -> T:
+    """Execute a tool with middleware wrapping.
+
+    This helper centralizes the middleware before/after logic to reduce
+    cognitive complexity in tool registrations.
+
+    Args:
+        tool_name: Name of the tool being executed
+        args: Arguments passed to the tool
+        middleware: Optional middleware stack for rate limiting/audit
+        enforcer: Access enforcer for validation
+        executor: Callable that performs the actual tool operation
+
+    Returns:
+        Result from the executor
+
+    Raises:
+        Any exception from the executor or enforcer
+    """
+    invocation = middleware.before_tool(tool_name, args) if middleware else None
+    try:
+        enforcer.validate_tool_access(tool_name)
+        result = executor()
+        if middleware and invocation:
+            middleware.after_tool(invocation, success=True, result=result)
+        return result
+    except Exception as e:
+        if middleware and invocation:
+            middleware.after_tool(invocation, success=False, error=str(e))
+        raise
+
+
+def _register_topic_tools(
     mcp: FastMCP,
     client: KafkaClientWrapper,
     enforcer: AccessEnforcer,
+    middleware: MiddlewareStack | None,
 ) -> None:
-    """Register all Kafka tools with the FastMCP server.
+    """Register topic-related tools."""
 
-    Args:
-        mcp: FastMCP server instance
-        client: Kafka client wrapper
-        enforcer: Access enforcer for validation
-    """
-    logger.info("Registering Kafka tools")
-
-    # Topic tools
     @mcp.tool(
         name="kafka_list_topics",
         description="List all Kafka topics with metadata (partition count, replication factor)",
@@ -51,9 +87,18 @@ def register_tools(  # noqa: PLR0915
         ] = False,
     ) -> list[dict[str, Any]]:
         """List all Kafka topics."""
-        enforcer.validate_tool_access("kafka_list_topics")
-        topics = topic.list_topics(client, enforcer, include_internal)
-        return [t.model_dump() for t in topics]
+
+        def execute() -> list[dict[str, Any]]:
+            topics = topic.list_topics(client, enforcer, include_internal)
+            return [t.model_dump() for t in topics]
+
+        return _execute_with_middleware(
+            "kafka_list_topics",
+            {"include_internal": include_internal},
+            middleware,
+            enforcer,
+            execute,
+        )
 
     @mcp.tool(
         name="kafka_describe_topic",
@@ -63,11 +108,28 @@ def register_tools(  # noqa: PLR0915
         topic_name: Annotated[str, Field(description="Name of the topic to describe")],
     ) -> dict[str, Any]:
         """Get detailed topic information."""
-        enforcer.validate_tool_access("kafka_describe_topic")
-        result = topic.describe_topic(client, enforcer, topic_name)
-        return result.model_dump()
 
-    # Consumer group tools
+        def execute() -> dict[str, Any]:
+            result = topic.describe_topic(client, enforcer, topic_name)
+            return result.model_dump()
+
+        return _execute_with_middleware(
+            "kafka_describe_topic",
+            {"topic_name": topic_name},
+            middleware,
+            enforcer,
+            execute,
+        )
+
+
+def _register_consumer_group_tools(
+    mcp: FastMCP,
+    client: KafkaClientWrapper,
+    enforcer: AccessEnforcer,
+    middleware: MiddlewareStack | None,
+) -> None:
+    """Register consumer group tools."""
+
     @mcp.tool(
         name="kafka_list_consumer_groups",
         description="List all consumer groups with their state and protocol type",
@@ -78,9 +140,18 @@ def register_tools(  # noqa: PLR0915
         ] = False,
     ) -> list[dict[str, Any]]:
         """List all consumer groups."""
-        enforcer.validate_tool_access("kafka_list_consumer_groups")
-        groups = consumer_group.list_consumer_groups(client, enforcer, include_internal)
-        return [g.model_dump() for g in groups]
+
+        def execute() -> list[dict[str, Any]]:
+            groups = consumer_group.list_consumer_groups(client, enforcer, include_internal)
+            return [g.model_dump() for g in groups]
+
+        return _execute_with_middleware(
+            "kafka_list_consumer_groups",
+            {"include_internal": include_internal},
+            middleware,
+            enforcer,
+            execute,
+        )
 
     @mcp.tool(
         name="kafka_describe_consumer_group",
@@ -90,9 +161,18 @@ def register_tools(  # noqa: PLR0915
         group_id: Annotated[str, Field(description="Consumer group ID to describe")],
     ) -> dict[str, Any]:
         """Get detailed consumer group information."""
-        enforcer.validate_tool_access("kafka_describe_consumer_group")
-        result = consumer_group.describe_consumer_group(client, enforcer, group_id)
-        return result.model_dump()
+
+        def execute() -> dict[str, Any]:
+            result = consumer_group.describe_consumer_group(client, enforcer, group_id)
+            return result.model_dump()
+
+        return _execute_with_middleware(
+            "kafka_describe_consumer_group",
+            {"group_id": group_id},
+            middleware,
+            enforcer,
+            execute,
+        )
 
     @mcp.tool(
         name="kafka_get_consumer_lag",
@@ -102,20 +182,46 @@ def register_tools(  # noqa: PLR0915
         group_id: Annotated[str, Field(description="Consumer group ID")],
     ) -> list[dict[str, Any]]:
         """Get consumer lag information."""
-        enforcer.validate_tool_access("kafka_get_consumer_lag")
-        lags = consumer_group.get_consumer_lag(client, enforcer, group_id)
-        return [lag.model_dump() for lag in lags]
 
-    # Cluster tools
+        def execute() -> list[dict[str, Any]]:
+            lags = consumer_group.get_consumer_lag(client, enforcer, group_id)
+            return [lag.model_dump() for lag in lags]
+
+        return _execute_with_middleware(
+            "kafka_get_consumer_lag",
+            {"group_id": group_id},
+            middleware,
+            enforcer,
+            execute,
+        )
+
+
+def _register_cluster_tools(
+    mcp: FastMCP,
+    client: KafkaClientWrapper,
+    enforcer: AccessEnforcer,
+    middleware: MiddlewareStack | None,
+) -> None:
+    """Register cluster tools."""
+
     @mcp.tool(
         name="kafka_cluster_info",
         description="Get Kafka cluster metadata (cluster ID, controller, broker/topic counts)",
     )
     def kafka_cluster_info() -> dict[str, Any]:
         """Get cluster information."""
-        enforcer.validate_tool_access("kafka_cluster_info")
-        result = cluster.get_cluster_info(client, enforcer)
-        return result.model_dump()
+
+        def execute() -> dict[str, Any]:
+            result = cluster.get_cluster_info(client, enforcer)
+            return result.model_dump()
+
+        return _execute_with_middleware(
+            "kafka_cluster_info",
+            {},
+            middleware,
+            enforcer,
+            execute,
+        )
 
     @mcp.tool(
         name="kafka_list_brokers",
@@ -123,9 +229,18 @@ def register_tools(  # noqa: PLR0915
     )
     def kafka_list_brokers() -> list[dict[str, Any]]:
         """List all brokers."""
-        enforcer.validate_tool_access("kafka_list_brokers")
-        brokers = cluster.list_brokers(client, enforcer)
-        return [b.model_dump() for b in brokers]
+
+        def execute() -> list[dict[str, Any]]:
+            brokers = cluster.list_brokers(client, enforcer)
+            return [b.model_dump() for b in brokers]
+
+        return _execute_with_middleware(
+            "kafka_list_brokers",
+            {},
+            middleware,
+            enforcer,
+            execute,
+        )
 
     @mcp.tool(
         name="kafka_get_watermarks",
@@ -135,11 +250,28 @@ def register_tools(  # noqa: PLR0915
         topic_name: Annotated[str, Field(description="Topic name to get watermarks for")],
     ) -> list[dict[str, Any]]:
         """Get topic watermarks."""
-        enforcer.validate_tool_access("kafka_get_watermarks")
-        watermarks = cluster.get_watermarks(client, enforcer, topic_name)
-        return [w.model_dump() for w in watermarks]
 
-    # Message tools
+        def execute() -> list[dict[str, Any]]:
+            watermarks = cluster.get_watermarks(client, enforcer, topic_name)
+            return [w.model_dump() for w in watermarks]
+
+        return _execute_with_middleware(
+            "kafka_get_watermarks",
+            {"topic_name": topic_name},
+            middleware,
+            enforcer,
+            execute,
+        )
+
+
+def _register_message_tools(
+    mcp: FastMCP,
+    client: KafkaClientWrapper,
+    enforcer: AccessEnforcer,
+    middleware: MiddlewareStack | None,
+) -> None:
+    """Register message tools."""
+
     @mcp.tool(
         name="kafka_consume_messages",
         description="Consume messages from a topic (read-only peek, does not commit offsets)",
@@ -161,16 +293,35 @@ def register_tools(  # noqa: PLR0915
         ] = 5.0,
     ) -> list[dict[str, Any]]:
         """Consume messages from a topic."""
-        enforcer.validate_tool_access("kafka_consume_messages")
-        messages = message.consume_messages(
-            client, enforcer, topic_name, partition, offset, limit, timeout
+
+        def execute() -> list[dict[str, Any]]:
+            messages = message.consume_messages(
+                client, enforcer, topic_name, partition, offset, limit, timeout
+            )
+            return [m.model_dump() for m in messages]
+
+        return _execute_with_middleware(
+            "kafka_consume_messages",
+            {
+                "topic_name": topic_name,
+                "partition": partition,
+                "offset": offset,
+                "limit": limit,
+                "timeout": timeout,
+            },
+            middleware,
+            enforcer,
+            execute,
         )
-        return [m.model_dump() for m in messages]
 
-    logger.success("Registered 9 Kafka READ tools")
 
-    # ==================== WRITE TOOLS ====================
-    # These tools require SAFETY_ALLOW_WRITE_OPERATIONS=true
+def _register_write_tools(
+    mcp: FastMCP,
+    client: KafkaClientWrapper,
+    enforcer: AccessEnforcer,
+    middleware: MiddlewareStack | None,
+) -> None:
+    """Register write tools (require SAFETY_ALLOW_WRITE_OPERATIONS=true)."""
 
     @mcp.tool(
         name="kafka_create_topic",
@@ -195,11 +346,25 @@ def register_tools(  # noqa: PLR0915
         ] = None,
     ) -> dict[str, Any]:
         """Create a new Kafka topic."""
-        enforcer.validate_tool_access("kafka_create_topic")
-        result = topic.create_topic(
-            client, enforcer, topic_name, partitions, replication_factor, config
+
+        def execute() -> dict[str, Any]:
+            result = topic.create_topic(
+                client, enforcer, topic_name, partitions, replication_factor, config
+            )
+            return result.model_dump()
+
+        return _execute_with_middleware(
+            "kafka_create_topic",
+            {
+                "topic_name": topic_name,
+                "partitions": partitions,
+                "replication_factor": replication_factor,
+                "config": config,
+            },
+            middleware,
+            enforcer,
+            execute,
         )
-        return result.model_dump()
 
     @mcp.tool(
         name="kafka_produce_message",
@@ -217,11 +382,26 @@ def register_tools(  # noqa: PLR0915
         ] = None,
     ) -> dict[str, Any]:
         """Produce a message to a Kafka topic."""
-        enforcer.validate_tool_access("kafka_produce_message")
-        result = message.produce_message(
-            client, enforcer, topic_name, value, key, partition, headers
+
+        def execute() -> dict[str, Any]:
+            result = message.produce_message(
+                client, enforcer, topic_name, value, key, partition, headers
+            )
+            return result.model_dump()
+
+        return _execute_with_middleware(
+            "kafka_produce_message",
+            {
+                "topic_name": topic_name,
+                "value": value,
+                "key": key,
+                "partition": partition,
+                "headers": headers,
+            },
+            middleware,
+            enforcer,
+            execute,
         )
-        return result.model_dump()
 
     @mcp.tool(
         name="kafka_reset_offsets",
@@ -238,27 +418,77 @@ def register_tools(  # noqa: PLR0915
         ] = "latest",
     ) -> list[dict[str, Any]]:
         """Reset consumer group offsets."""
-        enforcer.validate_tool_access("kafka_reset_offsets")
-        # Convert string offset to int if it's a numeric string
-        offset_value: int | str = offset
-        if offset not in ("earliest", "latest"):
-            try:
-                offset_value = int(offset)
-            except ValueError as e:
-                raise ValidationError(
-                    f"Invalid offset '{offset}'. Must be 'earliest', 'latest', or a number"
-                ) from e
-        results = consumer_group.reset_offsets(
-            client, enforcer, group_id, topic_name, partition, offset_value
-        )
-        return [r.model_dump() for r in results]
 
+        def execute() -> list[dict[str, Any]]:
+            # Convert string offset to int if it's a numeric string
+            offset_value: int | str = offset
+            if offset not in ("earliest", "latest"):
+                try:
+                    offset_value = int(offset)
+                except ValueError as e:
+                    raise ValidationError(
+                        f"Invalid offset '{offset}'. Must be 'earliest', 'latest', or a number"
+                    ) from e
+            results = consumer_group.reset_offsets(
+                client, enforcer, group_id, topic_name, partition, offset_value
+            )
+            return [r.model_dump() for r in results]
+
+        return _execute_with_middleware(
+            "kafka_reset_offsets",
+            {
+                "group_id": group_id,
+                "topic_name": topic_name,
+                "partition": partition,
+                "offset": offset,
+            },
+            middleware,
+            enforcer,
+            execute,
+        )
+
+
+def register_tools(
+    mcp: FastMCP,
+    client: KafkaClientWrapper,
+    enforcer: AccessEnforcer,
+    security_config: SecurityConfig | None = None,
+) -> MiddlewareStack | None:
+    """Register all Kafka tools with the FastMCP server.
+
+    Args:
+        mcp: FastMCP server instance
+        client: Kafka client wrapper
+        enforcer: Access enforcer for validation
+        security_config: Optional security configuration for middleware
+
+    Returns:
+        MiddlewareStack instance if security_config provided, None otherwise
+    """
+    logger.info("Registering Kafka tools")
+
+    # Initialize middleware stack if security config provided
+    middleware: MiddlewareStack | None = None
+    if security_config:
+        middleware = MiddlewareStack(security_config)
+
+    # Register all tool categories
+    _register_topic_tools(mcp, client, enforcer, middleware)
+    _register_consumer_group_tools(mcp, client, enforcer, middleware)
+    _register_cluster_tools(mcp, client, enforcer, middleware)
+    _register_message_tools(mcp, client, enforcer, middleware)
+    logger.success("Registered 9 Kafka READ tools")
+
+    _register_write_tools(mcp, client, enforcer, middleware)
     logger.success("Registered 3 Kafka WRITE tools")
+
+    return middleware
 
 
 # Export models for type hints
 __all__ = [
     "register_tools",
+    "_execute_with_middleware",
     # READ models
     "TopicInfo",
     "TopicDetail",

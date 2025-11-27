@@ -29,6 +29,10 @@ repos:
           - loguru>=0.7.0
           - typer>=0.9.0
           - fastmcp>=2.0.0
+          - limits>=5.0.0
+          - authlib>=1.0.0
+          - httpx>=0.28.0
+          - starlette>=0.50.0
         args: [--strict, --config-file=pyproject.toml]
         files: ^src/
 
