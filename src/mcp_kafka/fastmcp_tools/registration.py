@@ -1,6 +1,6 @@
 """Tool registration for FastMCP server."""
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from loguru import logger
@@ -42,10 +42,9 @@ def register_tools(
         description="List all Kafka topics with metadata (partition count, replication factor)",
     )
     def kafka_list_topics(
-        include_internal: bool = Field(
-            default=False,
-            description="Include internal topics (e.g., __consumer_offsets)",
-        ),
+        include_internal: Annotated[
+            bool, Field(description="Include internal topics (e.g., __consumer_offsets)")
+        ] = False,
     ) -> list[dict[str, Any]]:
         """List all Kafka topics."""
         enforcer.validate_tool_access("kafka_list_topics")
@@ -57,7 +56,7 @@ def register_tools(
         description="Get detailed information about a topic including partitions and configuration",
     )
     def kafka_describe_topic(
-        topic_name: str = Field(description="Name of the topic to describe"),
+        topic_name: Annotated[str, Field(description="Name of the topic to describe")],
     ) -> dict[str, Any]:
         """Get detailed topic information."""
         enforcer.validate_tool_access("kafka_describe_topic")
@@ -70,10 +69,9 @@ def register_tools(
         description="List all consumer groups with their state and protocol type",
     )
     def kafka_list_consumer_groups(
-        include_internal: bool = Field(
-            default=False,
-            description="Include internal consumer groups",
-        ),
+        include_internal: Annotated[
+            bool, Field(description="Include internal consumer groups")
+        ] = False,
     ) -> list[dict[str, Any]]:
         """List all consumer groups."""
         enforcer.validate_tool_access("kafka_list_consumer_groups")
@@ -85,7 +83,7 @@ def register_tools(
         description="Get detailed consumer group information including members and lag",
     )
     def kafka_describe_consumer_group(
-        group_id: str = Field(description="Consumer group ID to describe"),
+        group_id: Annotated[str, Field(description="Consumer group ID to describe")],
     ) -> dict[str, Any]:
         """Get detailed consumer group information."""
         enforcer.validate_tool_access("kafka_describe_consumer_group")
@@ -97,7 +95,7 @@ def register_tools(
         description="Get lag per partition for a consumer group",
     )
     def kafka_get_consumer_lag(
-        group_id: str = Field(description="Consumer group ID"),
+        group_id: Annotated[str, Field(description="Consumer group ID")],
     ) -> list[dict[str, Any]]:
         """Get consumer lag information."""
         enforcer.validate_tool_access("kafka_get_consumer_lag")
@@ -130,7 +128,7 @@ def register_tools(
         description="Get low/high watermarks and message counts for all partitions of a topic",
     )
     def kafka_get_watermarks(
-        topic_name: str = Field(description="Topic name to get watermarks for"),
+        topic_name: Annotated[str, Field(description="Topic name to get watermarks for")],
     ) -> list[dict[str, Any]]:
         """Get topic watermarks."""
         enforcer.validate_tool_access("kafka_get_watermarks")
@@ -143,27 +141,20 @@ def register_tools(
         description="Consume messages from a topic (read-only peek, does not commit offsets)",
     )
     def kafka_consume_messages(
-        topic_name: str = Field(description="Topic name to consume from"),
-        partition: int | None = Field(
-            default=None,
-            description="Specific partition to consume from (None = all partitions)",
-        ),
-        offset: int | None = Field(
-            default=None,
-            description="Starting offset (None = latest messages)",
-        ),
-        limit: int = Field(
-            default=10,
-            description="Maximum number of messages to return",
-            ge=1,
-            le=1000,
-        ),
-        timeout: float = Field(
-            default=5.0,
-            description="Timeout in seconds for polling",
-            ge=0.1,
-            le=60.0,
-        ),
+        topic_name: Annotated[str, Field(description="Topic name to consume from")],
+        partition: Annotated[
+            int | None,
+            Field(description="Specific partition to consume from (None = all partitions)"),
+        ] = None,
+        offset: Annotated[
+            int | None, Field(description="Starting offset (None = latest messages)")
+        ] = None,
+        limit: Annotated[
+            int, Field(description="Maximum number of messages to return (1-1000)", ge=1, le=1000)
+        ] = 10,
+        timeout: Annotated[
+            float, Field(description="Timeout in seconds for polling (0.1-60.0)", ge=0.1, le=60.0)
+        ] = 5.0,
     ) -> list[dict[str, Any]]:
         """Consume messages from a topic."""
         enforcer.validate_tool_access("kafka_consume_messages")
