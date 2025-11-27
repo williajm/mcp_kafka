@@ -56,6 +56,7 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
+        set -eo pipefail
         echo "Creating test topics..."
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders --partitions 3 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic users --partitions 2 --replication-factor 1
