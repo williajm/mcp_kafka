@@ -62,7 +62,7 @@ class RateLimitMiddleware:
         if not self._enabled:
             return True
 
-        return self._limiter.test(self._rate_limit, key)
+        return bool(self._limiter.test(self._rate_limit, key))
 
     def hit_rate_limit(self, key: str = "global") -> bool:
         """Record a request and check if within rate limit.
@@ -76,7 +76,7 @@ class RateLimitMiddleware:
         if not self._enabled:
             return True
 
-        return self._limiter.hit(self._rate_limit, key)
+        return bool(self._limiter.hit(self._rate_limit, key))
 
     def get_remaining(self, key: str = "global") -> int:
         """Get the number of remaining requests in the current window.
@@ -91,7 +91,7 @@ class RateLimitMiddleware:
             return self._rpm
 
         window_stats = self._limiter.get_window_stats(self._rate_limit, key)
-        return max(0, window_stats.remaining)
+        return max(0, int(window_stats.remaining))
 
     def validate_request(self, context: ToolContext) -> None:
         """Validate a tool request against rate limits.
