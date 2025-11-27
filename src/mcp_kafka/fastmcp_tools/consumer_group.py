@@ -33,6 +33,30 @@ def _state_to_string(state: ConsumerGroupState | None) -> str:
     return state_map.get(state, "Unknown")
 
 
+def _build_member_info(member: Any) -> ConsumerGroupMember:
+    """Build ConsumerGroupMember from admin API member result.
+
+    Args:
+        member: Member object from describe_consumer_groups result
+
+    Returns:
+        ConsumerGroupMember with member details
+    """
+    assignments: list[dict[str, int | str]] = []
+    if member.assignment and member.assignment.topic_partitions:
+        assignments = [
+            {"topic": tp.topic, "partition": tp.partition}
+            for tp in member.assignment.topic_partitions
+        ]
+
+    return ConsumerGroupMember(
+        member_id=member.member_id,
+        client_id=member.client_id or "",
+        client_host=member.host or "",
+        assignments=assignments,
+    )
+
+
 def list_consumer_groups(
     client: KafkaClientWrapper,
     enforcer: AccessEnforcer,
@@ -112,26 +136,8 @@ def describe_consumer_group(
 
             result = future.result(timeout=client.config.timeout)
 
-            # Build member info
-            members: list[ConsumerGroupMember] = []
-            for member in result.members:
-                assignments: list[dict[str, int | str]] = (
-                    [
-                        {"topic": tp.topic, "partition": tp.partition}
-                        for tp in member.assignment.topic_partitions
-                    ]
-                    if member.assignment and member.assignment.topic_partitions
-                    else []
-                )
-
-                members.append(
-                    ConsumerGroupMember(
-                        member_id=member.member_id,
-                        client_id=member.client_id or "",
-                        client_host=member.host or "",
-                        assignments=assignments,
-                    )
-                )
+            # Build member info using helper function
+            members = [_build_member_info(m) for m in result.members]
 
             # Get lag information
             partition_lags = get_consumer_lag(client, enforcer, group_id)
@@ -211,7 +217,7 @@ def get_consumer_lag(
                     continue
 
                 # Get high watermark
-                low, high = temp_consumer.get_watermark_offsets(
+                _, high = temp_consumer.get_watermark_offsets(
                     TopicPartition(tp.topic, tp.partition),
                     timeout=client.config.timeout,
                 )

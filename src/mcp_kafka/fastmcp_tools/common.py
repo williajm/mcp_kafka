@@ -2,6 +2,10 @@
 
 from pydantic import BaseModel, Field
 
+# Common field descriptions to avoid duplication
+DESC_TOPIC_NAME = "Topic name"
+DESC_PARTITION_ID = "Partition ID"
+
 
 class BrokerInfo(BaseModel):
     """Information about a Kafka broker."""
@@ -15,7 +19,7 @@ class BrokerInfo(BaseModel):
 class PartitionInfo(BaseModel):
     """Information about a topic partition."""
 
-    partition: int = Field(description="Partition ID")
+    partition: int = Field(description=DESC_PARTITION_ID)
     leader: int = Field(description="Leader broker ID")
     replicas: list[int] = Field(description="List of replica broker IDs")
     isrs: list[int] = Field(description="List of in-sync replica broker IDs")
@@ -24,7 +28,7 @@ class PartitionInfo(BaseModel):
 class TopicInfo(BaseModel):
     """Information about a Kafka topic."""
 
-    name: str = Field(description="Topic name")
+    name: str = Field(description=DESC_TOPIC_NAME)
     partition_count: int = Field(description="Number of partitions")
     replication_factor: int = Field(description="Replication factor")
     is_internal: bool = Field(default=False, description="Whether this is an internal topic")
@@ -59,8 +63,8 @@ class ConsumerGroupMember(BaseModel):
 class PartitionLag(BaseModel):
     """Lag information for a single partition."""
 
-    topic: str = Field(description="Topic name")
-    partition: int = Field(description="Partition ID")
+    topic: str = Field(description=DESC_TOPIC_NAME)
+    partition: int = Field(description=DESC_PARTITION_ID)
     current_offset: int = Field(description="Current committed offset")
     log_end_offset: int = Field(description="Log end offset (high watermark)")
     lag: int = Field(description="Number of messages behind")
@@ -89,8 +93,8 @@ class ClusterInfo(BaseModel):
 class WatermarkInfo(BaseModel):
     """Watermark information for a topic partition."""
 
-    topic: str = Field(description="Topic name")
-    partition: int = Field(description="Partition ID")
+    topic: str = Field(description=DESC_TOPIC_NAME)
+    partition: int = Field(description=DESC_PARTITION_ID)
     low_watermark: int = Field(description="Low watermark (earliest offset)")
     high_watermark: int = Field(description="High watermark (next offset to be written)")
     message_count: int = Field(description="Approximate message count in partition")
@@ -99,7 +103,7 @@ class WatermarkInfo(BaseModel):
 class ConsumedMessage(BaseModel):
     """A consumed Kafka message."""
 
-    topic: str = Field(description="Topic name")
+    topic: str = Field(description=DESC_TOPIC_NAME)
     partition: int = Field(description="Partition number")
     offset: int = Field(description="Message offset")
     timestamp: int | None = Field(default=None, description="Message timestamp (ms since epoch)")
