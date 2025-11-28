@@ -10,7 +10,7 @@ from typing import Any
 
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
-from mcp_kafka.middleware.utils import get_operation_type
+from mcp_kafka.middleware.utils import TOOL_CALL_PREFIX, get_operation_type
 from mcp_kafka.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +25,9 @@ INFO_LEVEL_OPERATIONS = {
     "prompts/list",
 }
 
+# Maximum length for argument preview in logs
+ARGS_PREVIEW_MAX_LENGTH = 200
+
 
 class DebugLoggingMiddleware(Middleware):
     """FastMCP middleware for MCP protocol logging.
@@ -38,20 +41,6 @@ class DebugLoggingMiddleware(Middleware):
     def __init__(self) -> None:
         """Initialize debug logging middleware."""
         logger.info("MCP protocol logging enabled")
-
-    def _truncate_if_needed(self, data: Any, max_length: int = 5000) -> str:
-        """Convert data to string and truncate if too long."""
-        if isinstance(data, (dict, list)):
-            try:
-                data_str = json.dumps(data, indent=2)
-            except (TypeError, ValueError):
-                data_str = str(data)
-        else:
-            data_str = str(data)
-
-        if len(data_str) > max_length:
-            return data_str[:max_length] + f"\n... (truncated, {len(data_str)} total bytes)"
-        return data_str
 
     def _extract_tool_names(self, result: Any) -> list[str]:
         """Extract tool names from a tools/list response."""
@@ -72,8 +61,8 @@ class DebugLoggingMiddleware(Middleware):
                     tool_names.append(tool.name)
                 elif isinstance(tool, dict) and "name" in tool:
                     tool_names.append(tool["name"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to extract tool names from result: {e}")
         return tool_names
 
     async def __call__(
@@ -98,14 +87,14 @@ class DebugLoggingMiddleware(Middleware):
 
         # Determine if this is a high-priority operation (INFO level)
         is_info_level = any(op in operation_type for op in INFO_LEVEL_OPERATIONS)
-        is_tool_call = operation_type.startswith("tool_call:")
+        is_tool_call = operation_type.startswith(TOOL_CALL_PREFIX)
 
         # Log incoming request
         if is_info_level:
             logger.info(f">>> MCP: {operation_type}")
         elif is_tool_call:
-            tool_name = operation_type.replace("tool_call:", "")
-            args_preview = json.dumps(arguments)[:200] if arguments else "{}"
+            tool_name = operation_type[len(TOOL_CALL_PREFIX) :]
+            args_preview = json.dumps(arguments)[:ARGS_PREVIEW_MAX_LENGTH] if arguments else "{}"
             logger.debug(f">>> MCP CALL: {tool_name} | args={args_preview}")
         else:
             logger.debug(f">>> MCP: {operation_type}")
@@ -123,7 +112,7 @@ class DebugLoggingMiddleware(Middleware):
             elif "initialize" in operation_type:
                 logger.info(f"<<< MCP: {operation_type} - CLIENT CONNECTED")
             elif is_tool_call:
-                logger.debug(f"<<< MCP OK: {operation_type.replace('tool_call:', '')}")
+                logger.debug(f"<<< MCP OK: {operation_type[len(TOOL_CALL_PREFIX) :]}")
             else:
                 logger.debug(f"<<< MCP: {operation_type} - OK")
 

@@ -4,6 +4,9 @@ from typing import Any
 
 from fastmcp.server.middleware import MiddlewareContext
 
+# Prefix used for tool call operation types
+TOOL_CALL_PREFIX = "tool_call:"
+
 
 def get_operation_type(context: MiddlewareContext[Any]) -> str:
     """Determine the type of MCP operation from context.
@@ -20,7 +23,7 @@ def get_operation_type(context: MiddlewareContext[Any]) -> str:
     if hasattr(message, "name") and hasattr(message, "arguments"):
         tool_name = getattr(message, "name", None)
         if tool_name:
-            return f"tool_call:{tool_name}"
+            return f"{TOOL_CALL_PREFIX}{tool_name}"
 
     # Check for MCP protocol methods (tools/list, prompts/list, etc.)
     if hasattr(message, "method"):
@@ -37,7 +40,7 @@ def get_operation_type(context: MiddlewareContext[Any]) -> str:
         if "method" in message:
             return str(message["method"])
         if "name" in message and "arguments" in message:
-            return f"tool_call:{message['name']}"
+            return f"{TOOL_CALL_PREFIX}{message['name']}"
 
     # Fall back to message type class name
     message_type = type(message).__name__
@@ -58,7 +61,7 @@ def get_operation_name(context: MiddlewareContext[Any]) -> str:
         return str(tool_name)
 
     operation_type = get_operation_type(context)
-    if operation_type.startswith("tool_call:"):
-        return operation_type[10:]
+    if operation_type.startswith(TOOL_CALL_PREFIX):
+        return operation_type[len(TOOL_CALL_PREFIX) :]
 
     return operation_type

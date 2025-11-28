@@ -126,7 +126,7 @@ class MiddlewareStack:
         )
         tool_result = ToolResult(success=success, data=result, error=error)
 
-        entry = self._audit._create_audit_entry(
+        entry = self._audit.create_audit_entry(
             context, tool_result, duration_ms, invocation.user_id
         )
         self._audit.log_audit_entry(entry)

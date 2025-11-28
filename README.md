@@ -41,12 +41,26 @@ export SAFETY_ALLOW_WRITE_OPERATIONS=true
 ### 2. Run the Server
 
 ```bash
-# Using uv
+# stdio transport (default, for MCP clients)
 uv run mcp-kafka
 
-# Using Python
-python -m mcp_kafka
+# HTTP transport (for web integrations)
+uv run mcp-kafka --transport http --host 127.0.0.1 --port 8000
+
+# Using convenience scripts
+./scripts/http-read.sh      # Read-only HTTP server
+./scripts/http-readwrite.sh # Read-write HTTP server
 ```
+
+#### CLI Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--transport` | `stdio` | Transport type: `stdio` or `http` |
+| `--host` | `127.0.0.1` | Host to bind (HTTP only) |
+| `--port` | `8000` | Port to bind (HTTP only) |
+| `--health-check` | - | Run health check and exit |
+| `--version`, `-v` | - | Show version and exit |
 
 ### 3. Connect to MCP Client
 

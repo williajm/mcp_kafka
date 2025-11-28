@@ -1,7 +1,5 @@
 """Tool registration for FastMCP server."""
 
-import sys
-import time
 from collections.abc import Callable
 from typing import Annotated, Any, TypeVar
 
@@ -61,23 +59,14 @@ def _execute_with_middleware(  # noqa: PLR0913
     Raises:
         Any exception from the executor or enforcer
     """
-    start_time = time.perf_counter()
-    print(f">>> MCP CALL: {tool_name} | args={args}", file=sys.stderr, flush=True)
-    logger.debug(f">>> MCP CALL: {tool_name} | args={args}")
-
     invocation = middleware.before_tool(tool_name, args) if middleware else None
     try:
         enforcer.validate_tool_access(tool_name)
         result = executor()
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        print(f"<<< MCP OK: {tool_name} | {duration_ms:.2f}ms", file=sys.stderr, flush=True)
-        logger.info(f"<<< MCP OK: {tool_name} | {duration_ms:.2f}ms")
         if middleware and invocation:
             middleware.after_tool(invocation, success=True, result=result)
         return result
     except Exception as e:
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        logger.warning(f"<<< MCP FAIL: {tool_name} | {duration_ms:.2f}ms | {e}")
         if middleware and invocation:
             middleware.after_tool(invocation, success=False, error=str(e))
         # Reset Kafka connection on connection-related errors for auto-recovery

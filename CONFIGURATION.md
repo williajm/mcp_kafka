@@ -251,6 +251,16 @@ SECURITY_OAUTH_AUDIENCE=mcp-kafka
 | `MCP_LOG_LEVEL` | `INFO` | Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL |
 | `MCP_JSON_LOGGING` | `false` | Enable JSON structured logging |
 | `MCP_DEBUG_MODE` | `false` | Show detailed errors in responses |
+| `MCP_KAFKA_LOG_PATH` | `mcp_kafka.log` | Path to application log file |
+
+### HTTP Transport
+
+These variables are used by the convenience scripts (`scripts/http-read.sh`, `scripts/http-readwrite.sh`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCP_HTTP_HOST` | `127.0.0.1` | HTTP server bind address |
+| `MCP_HTTP_PORT` | `8000` | HTTP server port |
 
 ### Logging
 
@@ -333,4 +343,18 @@ SECURITY_OAUTH_AUDIENCE=mcp-kafka
 SECURITY_ALLOWED_CLIENT_IPS=10.0.0.0/8
 
 MCP_JSON_LOGGING=true
+```
+
+### HTTP Transport (Development)
+
+```bash
+# Start HTTP server with environment variables
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+MCP_HTTP_HOST=127.0.0.1 \
+MCP_HTTP_PORT=8000 \
+./scripts/http-read.sh
+
+# Or with write access
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+./scripts/http-readwrite.sh
 ```

@@ -25,7 +25,9 @@ src/mcp_kafka/
 │   ├── safety.py          # SafetyMiddleware, ToolContext, ToolResult, ToolHandler
 │   ├── rate_limit.py      # RateLimitMiddleware (sliding window via limits lib)
 │   ├── audit.py           # AuditMiddleware (JSON logs, sensitive data redaction)
-│   └── stack.py           # MiddlewareStack (unified middleware integration)
+│   ├── stack.py           # MiddlewareStack (unified middleware integration)
+│   ├── debug_logging.py   # DebugLoggingMiddleware (MCP protocol logging)
+│   └── utils.py           # Middleware utility functions
 ├── auth/
 │   └── middleware.py      # OAuthMiddleware, JWKSClient, OAuthValidator (via authlib)
 └── utils/
