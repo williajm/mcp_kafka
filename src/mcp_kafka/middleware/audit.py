@@ -117,7 +117,7 @@ class AuditMiddleware:
 
         return sanitized
 
-    def _create_audit_entry(
+    def create_audit_entry(
         self,
         context: ToolContext,
         result: ToolResult,
@@ -186,14 +186,14 @@ class AuditMiddleware:
             end_time = time.perf_counter()
             duration_ms = (end_time - start_time) * 1000
             result = ToolResult(success=False, error=str(e))
-            entry = self._create_audit_entry(context, result, duration_ms, user_id)
+            entry = self.create_audit_entry(context, result, duration_ms, user_id)
             self.log_audit_entry(entry)
             raise
 
         end_time = time.perf_counter()
         duration_ms = (end_time - start_time) * 1000
 
-        entry = self._create_audit_entry(context, result, duration_ms, user_id)
+        entry = self.create_audit_entry(context, result, duration_ms, user_id)
         self.log_audit_entry(entry)
 
         return result

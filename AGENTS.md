@@ -25,7 +25,9 @@ src/mcp_kafka/
 │   ├── safety.py          # SafetyMiddleware, ToolContext, ToolResult, ToolHandler
 │   ├── rate_limit.py      # RateLimitMiddleware (sliding window via limits lib)
 │   ├── audit.py           # AuditMiddleware (JSON logs, sensitive data redaction)
-│   └── stack.py           # MiddlewareStack (unified middleware integration)
+│   ├── stack.py           # MiddlewareStack (unified middleware integration)
+│   ├── debug_logging.py   # DebugLoggingMiddleware (MCP protocol logging)
+│   └── utils.py           # Middleware utility functions
 ├── auth/
 │   └── middleware.py      # OAuthMiddleware, JWKSClient, OAuthValidator (via authlib)
 └── utils/
@@ -101,12 +103,3 @@ Security variables:
 - `SECURITY_OAUTH_ISSUER`: OAuth issuer URL
 - `SECURITY_OAUTH_AUDIENCE`: Expected audience claim
 - `SECURITY_OAUTH_JWKS_URL`: JWKS endpoint URL (derived from issuer if not set)
-
-## Implementation Plan
-
-See `IMPLEMENTATION_PLAN.md` for full phase breakdown:
-- Phase 1-2: Complete (Foundation, Access Control)
-- Phase 3: Complete (READ Tools)
-- Phase 4: Complete (WRITE Tools)
-- Phase 5: Complete (Middleware + Integration Tests)
-- Phase 6: Complete (Documentation)

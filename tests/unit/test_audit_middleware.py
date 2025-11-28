@@ -159,7 +159,7 @@ class TestAuditMiddlewareAuditEntry:
         context = ToolContext(tool_name="kafka_list_topics", arguments={"internal": False})
         result = ToolResult(success=True, data={"topics": ["test"]})
 
-        entry = middleware._create_audit_entry(context, result, 45.5)
+        entry = middleware.create_audit_entry(context, result, 45.5)
 
         assert entry["tool_name"] == "kafka_list_topics"
         assert entry["success"] is True
@@ -180,7 +180,7 @@ class TestAuditMiddlewareAuditEntry:
         context = ToolContext(tool_name="kafka_describe_topic", arguments={"topic": "test"})
         result = ToolResult(success=False, error="Topic not found")
 
-        entry = middleware._create_audit_entry(context, result, 12.3)
+        entry = middleware.create_audit_entry(context, result, 12.3)
 
         assert entry["success"] is False
         assert entry["error"] == "Topic not found"
@@ -197,7 +197,7 @@ class TestAuditMiddlewareAuditEntry:
         context = ToolContext(tool_name="kafka_list_topics", arguments={})
         result = ToolResult(success=True, data={})
 
-        entry = middleware._create_audit_entry(context, result, 10.0, user_id="user-123")
+        entry = middleware.create_audit_entry(context, result, 10.0, user_id="user-123")
 
         assert entry["user_id"] == "user-123"
         middleware.close()
