@@ -80,6 +80,8 @@ class MiddlewareStack:
         Raises:
             RateLimitError: If rate limit exceeded
         """
+        logger.debug(f"Tool call: {tool_name} with args: {arguments}")
+
         # Create context for rate limiting
         context = ToolContext(tool_name=tool_name, arguments=arguments)
 
@@ -112,6 +114,11 @@ class MiddlewareStack:
             error: Error message if failed
         """
         duration_ms = (time.perf_counter() - invocation.start_time) * 1000
+
+        if success:
+            logger.debug(f"Tool completed: {invocation.tool_name} in {duration_ms:.2f}ms")
+        else:
+            logger.warning(f"Tool failed: {invocation.tool_name} in {duration_ms:.2f}ms - {error}")
 
         context = ToolContext(
             tool_name=invocation.tool_name,

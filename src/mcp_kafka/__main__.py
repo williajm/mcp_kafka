@@ -17,6 +17,7 @@ from mcp_kafka.auth.middleware import OAuthMiddleware
 from mcp_kafka.config import Config, SecurityConfig
 from mcp_kafka.fastmcp_tools.registration import register_tools
 from mcp_kafka.kafka_wrapper import KafkaClientWrapper
+from mcp_kafka.middleware.debug_logging import create_debug_logging_middleware
 from mcp_kafka.middleware.stack import MiddlewareStack
 from mcp_kafka.safety.core import AccessEnforcer
 from mcp_kafka.utils.logger import get_logger, setup_logger
@@ -62,6 +63,10 @@ def create_mcp_server(
     mcp = FastMCP(
         name=config.server.server_name,
     )
+
+    # Add debug logging middleware (logs all MCP calls at DEBUG level)
+    debug_middleware = create_debug_logging_middleware()
+    mcp.add_middleware(debug_middleware)
 
     # Create Kafka client
     kafka_client = KafkaClientWrapper(config.kafka)

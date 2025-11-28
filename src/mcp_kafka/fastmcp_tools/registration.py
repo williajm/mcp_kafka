@@ -1,5 +1,7 @@
 """Tool registration for FastMCP server."""
 
+import sys
+import time
 from collections.abc import Callable
 from typing import Annotated, Any, TypeVar
 
@@ -27,16 +29,18 @@ from mcp_kafka.kafka_wrapper.client import KafkaClientWrapper
 from mcp_kafka.middleware.stack import MiddlewareStack
 from mcp_kafka.safety.core import AccessEnforcer
 from mcp_kafka.utils.errors import ValidationError
+from mcp_kafka.version import __version__
 
 T = TypeVar("T")
 
 
-def _execute_with_middleware(
+def _execute_with_middleware(  # noqa: PLR0913
     tool_name: str,
     args: dict[str, Any],
     middleware: MiddlewareStack | None,
     enforcer: AccessEnforcer,
     executor: Callable[[], T],
+    client: KafkaClientWrapper | None = None,
 ) -> T:
     """Execute a tool with middleware wrapping.
 
@@ -49,6 +53,7 @@ def _execute_with_middleware(
         middleware: Optional middleware stack for rate limiting/audit
         enforcer: Access enforcer for validation
         executor: Callable that performs the actual tool operation
+        client: Optional Kafka client for connection reset on errors
 
     Returns:
         Result from the executor
@@ -56,16 +61,28 @@ def _execute_with_middleware(
     Raises:
         Any exception from the executor or enforcer
     """
+    start_time = time.perf_counter()
+    print(f">>> MCP CALL: {tool_name} | args={args}", file=sys.stderr, flush=True)
+    logger.debug(f">>> MCP CALL: {tool_name} | args={args}")
+
     invocation = middleware.before_tool(tool_name, args) if middleware else None
     try:
         enforcer.validate_tool_access(tool_name)
         result = executor()
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        print(f"<<< MCP OK: {tool_name} | {duration_ms:.2f}ms", file=sys.stderr, flush=True)
+        logger.info(f"<<< MCP OK: {tool_name} | {duration_ms:.2f}ms")
         if middleware and invocation:
             middleware.after_tool(invocation, success=True, result=result)
         return result
     except Exception as e:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        logger.warning(f"<<< MCP FAIL: {tool_name} | {duration_ms:.2f}ms | {e}")
         if middleware and invocation:
             middleware.after_tool(invocation, success=False, error=str(e))
+        # Reset Kafka connection on connection-related errors for auto-recovery
+        if client is not None:
+            client.handle_connection_error(e)
         raise
 
 
@@ -98,6 +115,7 @@ def _register_topic_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
     @mcp.tool(
@@ -119,6 +137,7 @@ def _register_topic_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
 
@@ -151,6 +170,7 @@ def _register_consumer_group_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
     @mcp.tool(
@@ -172,6 +192,7 @@ def _register_consumer_group_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
     @mcp.tool(
@@ -193,6 +214,7 @@ def _register_consumer_group_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
 
@@ -221,6 +243,7 @@ def _register_cluster_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
     @mcp.tool(
@@ -240,6 +263,7 @@ def _register_cluster_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
     @mcp.tool(
@@ -261,6 +285,7 @@ def _register_cluster_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
 
@@ -312,6 +337,7 @@ def _register_message_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
 
@@ -364,6 +390,7 @@ def _register_write_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
     @mcp.tool(
@@ -401,6 +428,7 @@ def _register_write_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
     @mcp.tool(
@@ -445,6 +473,7 @@ def _register_write_tools(
             middleware,
             enforcer,
             execute,
+            client,
         )
 
 
@@ -465,20 +494,35 @@ def register_tools(
     Returns:
         MiddlewareStack instance if security_config provided, None otherwise
     """
-    logger.info("Registering Kafka tools")
+    logger.info(f"Registering Kafka tools (mcp-kafka v{__version__})")
 
     # Initialize middleware stack if security config provided
     middleware: MiddlewareStack | None = None
     if security_config:
         middleware = MiddlewareStack(security_config)
 
-    # Register all tool categories
+    # Register all tool categories with debug logging
+    logger.debug("Registering topic tools: kafka_list_topics, kafka_describe_topic")
     _register_topic_tools(mcp, client, enforcer, middleware)
+
+    logger.debug(
+        "Registering consumer group tools: kafka_list_consumer_groups, "
+        "kafka_describe_consumer_group, kafka_get_consumer_lag"
+    )
     _register_consumer_group_tools(mcp, client, enforcer, middleware)
+
+    logger.debug(
+        "Registering cluster tools: kafka_cluster_info, kafka_list_brokers, kafka_get_watermarks"
+    )
     _register_cluster_tools(mcp, client, enforcer, middleware)
+
+    logger.debug("Registering message tools: kafka_consume_messages")
     _register_message_tools(mcp, client, enforcer, middleware)
     logger.success("Registered 9 Kafka READ tools")
 
+    logger.debug(
+        "Registering write tools: kafka_create_topic, kafka_produce_message, kafka_reset_offsets"
+    )
     _register_write_tools(mcp, client, enforcer, middleware)
     logger.success("Registered 3 Kafka WRITE tools")
 

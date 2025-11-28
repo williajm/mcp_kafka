@@ -283,9 +283,53 @@ class KafkaClientWrapper:
         finally:
             producer.flush(timeout=self.config.timeout)
 
+    def _reset_connection(self) -> None:
+        """Reset the cached AdminClient to force reconnection on next use."""
+        if self._admin_client is not None:
+            logger.warning("Resetting Kafka connection due to error")
+            self._admin_client = None
+
+    def _is_connection_error(self, error: Exception) -> bool:
+        """Check if the error indicates a connection/transport failure.
+
+        Args:
+            error: The exception to check
+
+        Returns:
+            True if this is a connection-related error that warrants reconnection
+        """
+        error_str = str(error).lower()
+        connection_indicators = [
+            "_transport",
+            "_timed_out",
+            "_resolve",
+            "broker transport failure",
+            "host resolution failure",
+            "all brokers down",
+            "connection refused",
+            "kafkaconnectionerror",
+        ]
+        return any(indicator in error_str for indicator in connection_indicators)
+
+    def handle_connection_error(self, error: Exception) -> None:
+        """Handle an error by resetting the connection if it's connection-related.
+
+        This method should be called by tool implementations when they catch
+        exceptions. If the error indicates a connection/transport failure,
+        the cached AdminClient is reset so the next operation will reconnect.
+
+        Args:
+            error: The exception that was caught
+        """
+        if self._is_connection_error(error):
+            self._reset_connection()
+
     @contextmanager
     def acquire(self) -> Generator[AdminClient, None, None]:
         """Context manager for AdminClient access.
+
+        Automatically resets the connection on transport/connection errors
+        so subsequent calls can reconnect with fresh metadata.
 
         Yields:
             AdminClient instance
@@ -299,6 +343,8 @@ class KafkaClientWrapper:
             yield self.admin
         except KafkaException as e:
             logger.error(f"Kafka operation failed: {e}")
+            if self._is_connection_error(e):
+                self._reset_connection()
             raise
         except Exception as e:
             logger.error(f"Unexpected error in Kafka operation: {e}")

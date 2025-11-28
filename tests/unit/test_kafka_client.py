@@ -313,3 +313,71 @@ class TestKafkaClientWrapper:
             wrapper = KafkaClientWrapper(kafka_config)
             with pytest.raises(KafkaConnectionError):
                 _ = wrapper.admin
+
+    def test_is_connection_error_detects_transport_failure(self, kafka_config: KafkaConfig) -> None:
+        """Test _is_connection_error detects transport failures."""
+        wrapper = KafkaClientWrapper(kafka_config)
+
+        # Should detect connection errors
+        assert wrapper._is_connection_error(Exception("_TRANSPORT failure"))
+        assert wrapper._is_connection_error(Exception("Broker transport failure"))
+        assert wrapper._is_connection_error(Exception("_TIMED_OUT"))
+        assert wrapper._is_connection_error(Exception("Host resolution failure"))
+        assert wrapper._is_connection_error(Exception("All brokers down"))
+        assert wrapper._is_connection_error(Exception("Connection refused"))
+
+        # Should NOT detect non-connection errors
+        assert not wrapper._is_connection_error(Exception("Topic not found"))
+        assert not wrapper._is_connection_error(Exception("Invalid partition"))
+        assert not wrapper._is_connection_error(ValueError("Bad value"))
+
+    def test_handle_connection_error_resets_on_transport_failure(
+        self, kafka_config: KafkaConfig, mock_admin_client: MagicMock
+    ) -> None:
+        """Test handle_connection_error resets connection on transport failures."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            wrapper._connect()
+
+            # Verify connected
+            assert wrapper._admin_client is not None
+
+            # Handle a transport error - should reset
+            wrapper.handle_connection_error(Exception("Broker transport failure"))
+            assert wrapper._admin_client is None
+
+    def test_handle_connection_error_ignores_non_connection_errors(
+        self, kafka_config: KafkaConfig, mock_admin_client: MagicMock
+    ) -> None:
+        """Test handle_connection_error ignores non-connection errors."""
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            wrapper._connect()
+
+            # Verify connected
+            assert wrapper._admin_client is not None
+
+            # Handle a non-connection error - should NOT reset
+            wrapper.handle_connection_error(Exception("Topic not found"))
+            assert wrapper._admin_client is not None
+
+    def test_acquire_resets_connection_on_transport_failure(
+        self, kafka_config: KafkaConfig, mock_admin_client: MagicMock
+    ) -> None:
+        """Test acquire context manager resets connection on transport failures."""
+        from confluent_kafka import KafkaException
+
+        with patch("mcp_kafka.kafka_wrapper.client.AdminClient") as mock_cls:
+            mock_cls.return_value = mock_admin_client
+            wrapper = KafkaClientWrapper(kafka_config)
+            wrapper._admin_client = mock_admin_client
+
+            # Simulate a transport error inside acquire
+            with pytest.raises(KafkaException):
+                with wrapper.acquire():
+                    raise KafkaException("_TRANSPORT: Broker transport failure")
+
+            # Connection should be reset for auto-recovery
+            assert wrapper._admin_client is None
