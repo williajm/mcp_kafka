@@ -8,6 +8,7 @@ import pytest
 from mcp_kafka.middleware.debug_logging import (
     ARGS_PREVIEW_MAX_LENGTH,
     INFO_LEVEL_OPERATIONS,
+    TOOLS_LIST_METHOD,
     DebugLoggingMiddleware,
     create_debug_logging_middleware,
 )
@@ -38,9 +39,13 @@ class TestConstants:
     def test_info_level_operations(self) -> None:
         """Test that INFO_LEVEL_OPERATIONS contains expected operations."""
         assert "initialize" in INFO_LEVEL_OPERATIONS
-        assert "tools/list" in INFO_LEVEL_OPERATIONS
+        assert TOOLS_LIST_METHOD in INFO_LEVEL_OPERATIONS
         assert "resources/list" in INFO_LEVEL_OPERATIONS
         assert "prompts/list" in INFO_LEVEL_OPERATIONS
+
+    def test_tools_list_method_constant(self) -> None:
+        """Test that TOOLS_LIST_METHOD constant is correct."""
+        assert TOOLS_LIST_METHOD == "tools/list"
 
 
 class TestDebugLoggingMiddlewareInit:

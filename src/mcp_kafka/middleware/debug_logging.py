@@ -15,12 +15,15 @@ from mcp_kafka.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# MCP protocol method constants
+TOOLS_LIST_METHOD = "tools/list"
+
 # Operations to log at INFO level (connection/discovery)
 INFO_LEVEL_OPERATIONS = {
     "initialize",
     "initialized",
     "notifications/initialized",
-    "tools/list",
+    TOOLS_LIST_METHOD,
     "resources/list",
     "prompts/list",
 }
@@ -104,9 +107,9 @@ class DebugLoggingMiddleware(Middleware):
             result = await call_next(context)
 
             # Log successful response
-            if operation_type == "tools/list" or "tools/list" in operation_type:
+            if operation_type == TOOLS_LIST_METHOD or TOOLS_LIST_METHOD in operation_type:
                 tool_names = self._extract_tool_names(result)
-                logger.info(f"<<< MCP: tools/list returned {len(tool_names)} tools:")
+                logger.info(f"<<< MCP: {TOOLS_LIST_METHOD} returned {len(tool_names)} tools:")
                 for name in tool_names:
                     logger.info(f"    - {name}")
             elif "initialize" in operation_type:
