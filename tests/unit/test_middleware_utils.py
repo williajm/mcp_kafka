@@ -1,7 +1,6 @@
 """Tests for middleware utility functions."""
 
 from typing import Any
-from unittest.mock import MagicMock
 
 from mcp_kafka.middleware.utils import (
     TOOL_CALL_PREFIX,
