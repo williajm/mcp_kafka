@@ -23,6 +23,17 @@ jobs:
       uses: actions/dependency-review-action@3c4e3dcb1aa7874d2c16be7d79418e9b7efd6261 # v4.8.2
       with:
         fail-on-severity: moderate
-        allow-licenses: MIT, MIT-0, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC, Python-2.0, PSF-2.0, Unlicense, MPL-2.0
+        # License policy for all dependencies (product and CI/dev tooling)
+        # Product dependencies (pyproject.toml): MIT, Apache-2.0, BSD, ISC, Python-2.0
+        #
+        # MIT-0: Public domain equivalent (used by cffi)
+        # 0BSD: Zero-clause BSD (used by typing-extensions)
+        # PSF-2.0: Python Software Foundation License (used by distlib)
+        # Python-2.0.1: PSF License v2.0.1 (used by mypy compound license)
+        # Unlicense: Public domain dedication (used by filelock)
+        # MPL-2.0: Mozilla Public License (weak copyleft, file-level)
+        #
+        # All allowed licenses are permissive and MIT-compatible.
+        allow-licenses: MIT, MIT-0, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC, Python-2.0, Python-2.0.1, PSF-2.0, Unlicense, MPL-2.0
         comment-summary-in-pr: on-failure
         warn-on-openssf-scorecard-level: 1.0
