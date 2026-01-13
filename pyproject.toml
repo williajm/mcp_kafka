@@ -36,37 +36,39 @@ classifiers = [
 ]
 
 dependencies = [
-    "fastmcp>=2.13.1",
+    "fastmcp>=2.14.3",
     "confluent-kafka>=2.3.0",
-    "pydantic>=2.12.4",
+    "pydantic>=2.12.5",
     "pydantic-settings>=2.12.0",
     "starlette>=0.50.0",
     "uvicorn>=0.38.0",
     "loguru>=0.7.3",
     "limits>=5.6.0",
-    "authlib>=1.6.5",
+    "authlib>=1.6.6",
     "httpx>=0.28.1",
     "typer>=0.20.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=9.0.0",
+    "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
-    "pytest-cov>=4.1.0",
+    "pytest-cov>=7.0.0",
     "testcontainers>=4.0.0",
-    "mypy>=1.8.0",
-    "ruff>=0.14.5",
-    "hypothesis>=6.0.0",
+    "mypy>=1.19.1",
+    "ruff>=0.14.9",
+    "hypothesis>=6.148.7",
 ]
 fuzz = [
-    "atheris>=2.3.0",
+    "atheris>=3.0.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/williajm/mcp_kafka"
 Repository = "https://github.com/williajm/mcp_kafka"
 Issues = "https://github.com/williajm/mcp_kafka/issues"
+Changelog = "https://github.com/williajm/mcp_kafka/releases"
+PyPI = "https://pypi.org/project/mcp-kafka/"
 
 [project.scripts]
 mcp-kafka = "mcp_kafka.__main__:app"
@@ -79,14 +81,19 @@ build-backend = "hatchling.build"
 packages = ["src/mcp_kafka"]
 
 [tool.hatch.build.targets.sdist]
+# Explicitly exclude all development, CI, and config files
 exclude = [
     ".gitignore",
     ".git",
     ".github",
+    ".clusterfuzzlite",
     ".python-version",
     ".pre-commit-config.yaml",
     "codecov.yml",
+    "sonar-project.properties",
     "uv.lock",
+    "AGENTS.md",
+    "CLAUDE.md",
 ]
 
 [tool.ruff]
@@ -115,22 +122,25 @@ select = [
 ignore = []
 
 [tool.ruff.lint.per-file-ignores]
+# Tests need flexibility for fixtures, long assertions, and test-specific patterns
 "tests/**/*.py" = [
-    "ARG",
-    "PLR2004",
-    "E501",
-    "PLC0415",
-    "SIM105",
-    "SIM117",
-    "PLR0915",
-    "ERA001",
+    "ARG",      # Unused arguments (fixtures may require args for setup)
+    "PLR2004",  # Magic values (acceptable in test assertions)
+    "E501",     # Line length (test assertions can be long for readability)
+    "PLC0415",  # Import at top-level (tests may need conditional imports)
+    "SIM105",   # Use contextlib.suppress (explicit try-except-pass is clearer in tests)
+    "SIM117",   # Single with statement (separate context managers are more readable)
+    "PLR0915",  # Too many statements (integration/E2E tests naturally have many steps)
+    "ERA001",   # Commented code (tests sometimes keep old approaches as documentation)
 ]
+# Fuzz tests use Atheris conventions (TestOneInput is required entry point)
 "tests/fuzz/**/*.py" = [
-    "N802",
+    "N802",     # TestOneInput function name is required by Atheris fuzzing framework
 ]
+# Main entry point has Typer CLI setup
 "src/mcp_kafka/__main__.py" = [
-    "PLR0915",
-    "B008",
+    "PLR0915",  # Too many statements (main function sets up config and server)
+    "B008",     # Typer.Option in defaults is the standard Typer pattern
 ]
 
 [tool.mypy]
@@ -221,6 +231,9 @@ addopts = [
 markers = [
     "unit: Unit tests",
     "integration: Integration tests requiring Kafka",
+    "e2e: End-to-end tests with realistic scenarios",
+    "slow: Slow running tests (but still functional)",
+    "stress: Stress/performance tests (high resource usage, skip in CI)",
     "fuzz: Fuzz tests (run by ClusterFuzzLite)",
 ]
 
@@ -241,15 +254,15 @@ exclude_lines = [
 
 [dependency-groups]
 dev = [
-    "coverage>=7.11.0",
-    "hypothesis>=6.147.0",
-    "mypy>=1.18.2",
-    "pytest>=8.4.2",
-    "pytest-asyncio>=1.2.0",
+    "coverage>=7.13.0",
+    "hypothesis>=6.148.7",
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
-    "ruff>=0.14.2",
+    "ruff>=0.14.9",
     "testcontainers>=4.0.0",
 ]
 fuzz = [
-    "atheris>=2.3.0",
+    "atheris>=3.0.0",
 ]
