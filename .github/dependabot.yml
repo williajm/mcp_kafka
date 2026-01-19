@@ -1,26 +1,22 @@
 version: 2
 updates:
+  # Python dependencies - security updates only
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
-    labels:
-      - "dependencies"
-    groups:
-      python-dependencies:
-        patterns:
-          - "*"
+    open-pull-requests-limit: 0  # No version PRs, security PRs still created
 
+  # Docker - security updates only
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
-    labels:
-      - "dependencies"
+    open-pull-requests-limit: 0  # No version PRs, security PRs still created
 
+  # GitHub Actions - security updates only
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    labels:
-      - "dependencies"
+    open-pull-requests-limit: 0  # No version PRs, security PRs still created
